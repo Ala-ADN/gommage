@@ -6,14 +6,7 @@
 
 <div align="center">
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│   LIVE RUN        →        RECORDED        →     REPLAY   │
-│  Agent executes             Every prompt,             Step-by-step│
-│  in production              tool call & state          — no side  │
-│  on a Jira ticket           is snapshotted             effects    │
-└─────────────────────────────────────────────────────────────────┘
-```
+
 
 [![AINS Hackathon](https://img.shields.io/badge/AINS-Hackathon%202026-blueviolet?style=for-the-badge)]()
 [![Use Case](https://img.shields.io/badge/Use%20Case-2%20%E2%80%94%20Agent%20Replay-orange?style=for-the-badge)]()
@@ -70,17 +63,7 @@ Three critical gaps exist today:
 
 **gommage** is an infrastructure-layer proxy that wraps your AI agent without modifying its core architecture. It operates in two modes:
 
-```
-RECORD MODE                          REPLAY MODE
-────────────                         ────────────
-Agent → [FR Proxy] → Real APIs       Agent → [FR Proxy] → Mocked Responses
-              ↓                                      ↓
-        Snapshots every:              Returns recorded payloads instead
-        • LLM call + prompt           of hitting live endpoints.
-        • Tool call + payload          No side effects. Ever.
-        • Memory / context window
-        • Return values + latency
-```
+
 
 Every recorded trace is:
 
@@ -137,43 +120,66 @@ Everything lives in Jira. No external dashboard required during a demo.
 
 ## Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                        ATLASSIAN ECOSYSTEM                          │
-│                                                                     │
-│  ┌──────────────┐    triggers     ┌──────────────────────────────┐  │
-│  │  Jira Ticket │ ──────────────▶ │      AI Agent (target)       │  │
-│  │  (e.g. triage│                 │  (LangGraph / CrewAI / etc.) │  │
-│  │   or audit)  │                 └──────────┬───────────────────┘  │
-│  └──────────────┘                            │                      │
-│         ▲                                    ▼                      │
-│         │ attaches trace          ┌──────────────────────────────┐  │
-│         │                        │    gommage Proxy              │  │
-│         │                        │  ┌────────────┐ ┌──────────┐ │  │
-│         │                        │  │ LLM Proxy  │ │Tool Proxy│ │  │
-│         │                        │  │ (intercepts│ │(intercepts│ │  │
-│         │                        │  │  all calls)│ │all calls) │ │  │
-│         │                        │  └─────┬──────┘ └────┬─────┘ │  │
-│         │                        │        └──────┬───────┘       │  │
-│         │                        │               ▼               │  │
-│         │                        │     ┌─────────────────┐       │  │
-│         │                        │     │  AER Serializer  │       │  │
-│         │                        │     │  (Step snapshots │       │  │
-│         │                        │     │   + evidence     │       │  │
-│         │                        │     │   chain + mock   │       │  │
-│         │                        │     │   registry)      │       │  │
-│         │                        │     └────────┬─────────┘       │  │
-│         └────────────────────────│──────────────┘                  │  │
-│                                  └──────────────────────────────┘  │
-│                                                                     │
-│  ┌──────────────────────────────────────────────────────────────┐   │
-│  │                 Replay Panel (Jira Plugin / iFrame)           │   │
-│  │                                                              │   │
-│  │  [Step 1] ──▶ [Step 2] ──▶ [Step 4*] ──▶ [Step 5] ...      │   │
-│  │                              ↑ EDITED                        │   │
-│  │   Prompt   Tool Call   Mock Output   Diff View       │   │
-│  └──────────────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────────────┘
+```mermaid
+classDiagram
+    class Agent {
+        +LangGraph/CrewAI
+        +execute_task()
+    }
+    class GommageProxy {
+        +intercept_traffic()
+    }
+    class LLMProxy {
+        +intercept_prompt()
+        +capture_response()
+    }
+    class ToolProxy {
+        +intercept_payload()
+        +capture_result()
+    }
+    class MockRegistry {
+        +detect_side_effects()
+        +return_mocked_payload()
+    }
+    class AERSerializer {
+        +build_step_snapshot()
+        +construct_evidence_chain()
+    }
+    class AgentExecutionRecord {
+        +run_id: String
+        +jira_ticket_id: String
+        +status: String
+        +steps: List~AERStep~
+    }
+    class AERStep {
+        +step_id: Integer
+        +intent: String
+        +observation: String
+        +inference: String
+    }
+    class ReplayRunner {
+        +execute_deterministic_replay()
+        +inject_divergence()
+    }
+    class DivergenceTracker {
+        +track_branching()
+        +compute_diff()
+    }
+    class JiraReplayPanel {
+        +view_step()
+        +edit_prompt()
+        +mock_badge()
+    }
+
+    Agent --> GommageProxy : Triggers
+    GommageProxy *-- LLMProxy
+    GommageProxy *-- ToolProxy
+    GommageProxy --> AERSerializer : Sends state
+    AERSerializer --> AgentExecutionRecord : Serializes
+    AgentExecutionRecord *-- AERStep : Contains
+    ReplayRunner --> MockRegistry : Queries for mocks
+    ReplayRunner --> DivergenceTracker : Reports edits
+    JiraReplayPanel --> ReplayRunner : Controls Replay
 ```
 
 ---
