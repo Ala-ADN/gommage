@@ -1,0 +1,489 @@
+\documentclass[11pt, a4paper]{article}
+
+% ─── Packages ────────────────────────────────────────────────────────────────
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{fontenc}
+\usepackage{inputenc}
+\usepackage{microtype}
+\usepackage{lmodern}
+\usepackage{titlesec}
+\usepackage{titling}
+\usepackage{abstract}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage{xcolor}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{parskip}
+\usepackage{fancyhdr}
+\usepackage{listings}
+\usepackage{tcolorbox}
+\usepackage{amsmath}
+\usepackage{caption}
+\usepackage{multicol}
+\usepackage{mdframed}
+\usepackage{setspace}
+\usepackage{cite}
+
+% ─── Colors ──────────────────────────────────────────────────────────────────
+\definecolor{primary}{HTML}{1E3A5F}
+\definecolor{accent}{HTML}{E85D26}
+\definecolor{light}{HTML}{F4F6F9}
+\definecolor{code}{HTML}{2D2D2D}
+\definecolor{muted}{HTML}{6B7280}
+\definecolor{green}{HTML}{16A34A}
+
+% ─── Hyperref Setup ──────────────────────────────────────────────────────────
+\hypersetup{
+  colorlinks=true,
+  linkcolor=primary,
+  citecolor=primary,
+  urlcolor=accent,
+  pdftitle={gommage: Agent Execution Tracer and Deterministic Replay Engine},
+  pdfauthor={AINS Hackathon 2026 Team}
+}
+
+% ─── Title Formatting ─────────────────────────────────────────────────────────
+\titleformat{\section}
+  {\large\bfseries\color{primary}}
+  {\thesection.}{0.5em}{}[\vspace{-0.3em}\color{accent}\hrule height 1.5pt\vspace{0.3em}]
+
+\titleformat{\subsection}
+  {\normalsize\bfseries\color{primary}}
+  {\thesubsection.}{0.5em}{}
+
+\titleformat{\subsubsection}
+  {\normalsize\itshape\color{muted}}
+  {}{0em}{}
+
+% ─── Header / Footer ─────────────────────────────────────────────────────────
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small\textcolor{muted}{\textbf{gommage} — AINS Hackathon 2026}}
+\fancyhead[R]{\small\textcolor{muted}{Use Case 2 · Agent Replay Engine}}
+\fancyfoot[C]{\small\textcolor{muted}{\thepage}}
+\renewcommand{\headrulewidth}{0.4pt}
+
+% ─── Code Style ──────────────────────────────────────────────────────────────
+\lstset{
+  basicstyle=\small\ttfamily\color{code},
+  backgroundcolor=\color{light},
+  frame=single,
+  framesep=6pt,
+  rulecolor=\color{primary!30},
+  breaklines=true,
+  showstringspaces=false,
+  keywordstyle=\color{primary}\bfseries,
+  commentstyle=\color{muted},
+  stringstyle=\color{accent}
+}
+
+% ─── Callout Box ─────────────────────────────────────────────────────────────
+\tcbset{
+  pitchbox/.style={
+    colback=primary!8,
+    colframe=primary,
+    boxrule=1.2pt,
+    arc=4pt,
+    left=8pt, right=8pt, top=8pt, bottom=8pt,
+    fonttitle=\bfseries\color{white},
+    coltitle=white,
+    attach boxed title to top left={yshift=-2mm, xshift=4mm},
+    boxed title style={colback=primary, arc=2pt}
+  },
+  metricbox/.style={
+    colback=green!8,
+    colframe=green,
+    boxrule=1pt,
+    arc=3pt,
+    left=6pt, right=6pt, top=6pt, bottom=6pt,
+  }
+}
+
+% ─── Table Column Types ───────────────────────────────────────────────────────
+\newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
+\newcolumntype{C}[1]{>{\centering\arraybackslash}p{#1}}
+
+% ─── Document ────────────────────────────────────────────────────────────────
+\begin{document}
+
+% ─── Title Page ──────────────────────────────────────────────────────────────
+\begin{titlepage}
+  \centering
+  \vspace*{2cm}
+
+  {\small\textcolor{muted}{\textsc{AINS Hackathon 2026 · Use Case 2}}}
+
+  \vspace{0.8cm}
+
+  {\LARGE\bfseries\color{primary} gommage}
+
+  \vspace{0.4cm}
+
+  {\large\color{accent} Agent Execution Tracer \& Deterministic Replay Engine}
+
+  \vspace{0.4cm}
+
+  {\large\color{muted} Technical Architecture \& Design Justification}
+
+  \vspace{1.5cm}
+  \color{primary!30}\hrule height 1.5pt\vspace{0.3em}
+  \vspace{1.5cm}
+
+  \begin{tcolorbox}[pitchbox, title=Core Pitch]
+    \textit{Imagine this — entirely inside Jira: An agent fails on a sensitive ticket. Its entire trajectory — prompts, tool calls, memory — is automatically recorded and attached to the ticket. A developer opens the ticket, clicks \textbf{"Replay in Debug Mode"}. The tool call that would have sent an email is automatically mocked. The developer rewrites the prompt at step 4, hits Continue, and watches the agent take a safer path — still using the original recorded responses. Once satisfied, they create a linked Jira issue for the fix, with the debug trace as evidence. Like a cheeky clair obscur, gommage erases the shadows and highlights the true reasoning path of your agents.}
+  \end{tcolorbox}
+
+  \vspace{2cm}
+
+  \begin{tabular}{ll}
+    \textbf{Team} & \texttt{[PLACEHOLDER — Team Name]} \\
+    \textbf{Track} & AINS Hackathon 2026, Use Case 2 \\
+    \textbf{Date} & June 2026 \\
+    \textbf{Version} & 1.0 — First Submission \\
+  \end{tabular}
+
+  \vfill
+  {\small\textcolor{muted}{Organised by AINS 4.0 in partnership with Vectors}}
+\end{titlepage}
+
+% ─── Abstract ────────────────────────────────────────────────────────────────
+\begin{abstract}
+\noindent
+AI agents deployed in enterprise Atlassian environments fail in ways that are fundamentally non-reproducible using classical debugging methods. When an agent re-executes, the LLM produces different outputs; worse, re-execution may trigger side-effecting tools — sending emails, modifying tickets — during the debug session itself. \textbf{gommage} is an infrastructure-layer proxy that (i) transparently records the full trajectory of any LLM agent run as a structured \textit{Agent Execution Record} (AER) (including versioned plans, evidence chains, structured verdicts, and delegation authority chains), (ii) replays that trajectory deterministically by intercepting and mocking all tool calls, (iii) surfaces this workflow natively inside Jira, and (iv) employs a transport-layer verification mechanism intercepting calls at the stdio, shell, and filesystem layers to reconcile self-reported AER fields. This document justifies the technical choices underpinning gommage, grounds them in the AER provenance model of Vispute (2026), and presents the 5-day implementation plan.
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+% ─── 1. Problem ──────────────────────────────────────────────────────────────
+\section{Problem Framing}
+
+\subsection{The Debugging Gap}
+
+Classical software debugging relies on two guarantees: \textit{reproducibility} (running the same code on the same input produces the same state) and \textit{isolation} (reproducing a bug does not cause additional side effects in production). Both guarantees collapse for LLM-based agents.
+
+\begin{itemize}[leftmargin=*]
+  \item \textbf{Non-reproducibility.} The same instruction passed to an LLM agent twice yields different tool call sequences, reasoning chains, and outputs due to sampling stochasticity. Re-running a failed agent to debug it produces a different failure — or no failure at all.
+  \item \textbf{Side effects during debug.} A failed Jira triaging agent, re-run by an engineer, may send a customer email or overwrite a ticket during the debug session — compounding the original damage.
+  \item \textbf{Opaque state.} Simple log files capture what happened but not \textit{why}: what prompt the LLM received at each step, what context was in its window, and what it inferred before each action.
+\end{itemize}
+
+What is missing is an enterprise-grade \textit{Flight Recorder}: infrastructure that captures every LLM input, context variable, and tool-call payload during a live run, then allows developers to re-execute the agent step-by-step using the exact recorded tool responses — guaranteeing determinism without touching live APIs.
+
+\subsection{Scope and Target System}
+
+gommage targets agents deployed in the Atlassian ecosystem (Jira Software, Jira Service Management, Confluence) that interact with external tools (databases, email, webhooks). The demo agent is a \textbf{Jira ticket triaging agent} that reads incoming tickets, queries a database for SLA context, and routes tickets to teams — with an email notification on completion.
+
+% ─── 2. Methodology ──────────────────────────────────────────────────────────
+\section{Theoretical Foundation}
+
+\subsection{The Agent Execution Record (AER)}
+
+Our core data model is grounded in Vispute (2026), \textit{Reasoning Provenance for Autonomous AI Agents} \cite{vispute2026}. Vispute formalises a distinction that is central to our design:
+
+\begin{quote}
+\textit{"State checkpoint systems save serialized snapshots of the agent's computational state. What they do not contain as a structured field is \textbf{why} the agent chose each action, \textbf{what it concluded} from each observation, or \textbf{how each conclusion shaped its strategy}."} \cite{vispute2026}
+\end{quote}
+
+The AER model introduces structured reasoning provenance as a first-class schema primitive: intent, observation, and inference captured alongside every tool call and LLM response. Vispute further defines three replay modes — \textbf{mock replay} being the one gommage implements — which re-executes the agent using recorded tool responses without calling live endpoints.
+
+We extend the AER concept in two directions suited to our Jira-native context:
+
+\begin{enumerate}[leftmargin=*]
+  \item \textbf{Side-effect classification field.} Each tool call record is tagged with a \texttt{side\_effect} boolean and a \texttt{mock\_required} flag, enabling the Mock Registry to automatically intercept destructive calls during replay.
+  \item \textbf{Jira attachment envelope.} The AER is serialised with a top-level \texttt{jira\_ticket\_id} field and pushed as a structured attachment to the originating ticket via the Jira REST API.
+\end{enumerate}
+
+\subsection{Proxying as the Primary Challenge}
+
+The hackathon specification \cite{ains2026} correctly identifies that \textit{"building the proxy that seamlessly intercepts tool calls without altering the agent's core architecture is the primary technical hurdle."} Our proxy design addresses this at two layers:
+
+\begin{itemize}[leftmargin=*]
+  \item \textbf{LLM Proxy.} Wraps the Anthropic/OpenAI client to intercept every \texttt{messages} array and response before and after the LLM call.
+  \item \textbf{Tool Proxy.} Wraps tool executors (whether MCP, LangChain tools, or raw REST calls) to intercept payloads and return values.
+\end{itemize}
+
+Both proxies operate transparently: the agent's core code is not modified.
+
+% ─── 3. Technical Architecture ───────────────────────────────────────────────
+\section{Technical Architecture}
+
+\subsection{Component Overview}
+
+\begin{table}[h!]
+  \centering
+  \caption{gommage system components and responsibilities}
+  \begin{tabularx}{\textwidth}{L{3cm}L{4.5cm}L{5.5cm}}
+    \toprule
+    \textbf{Component} & \textbf{Role} & \textbf{Key Behaviour} \\
+    \midrule
+    LLM Proxy & Intercepts all LLM calls & Records prompt, system message, response, token count, latency \\
+    \addlinespace
+    Tool Proxy & Intercepts all tool calls & Records tool name, parameters, return value, latency, side-effect flag \\
+    \addlinespace
+    Mock Registry & Classifies \& mocks tools & Tags side-effecting tools; returns recorded payload during replay \\
+    \addlinespace
+    AER Serialiser & Builds structured trace & Produces a JSON AER document per run, stored in SQLite \\
+    \addlinespace
+    Jira Attachment & Surfaces trace in Jira & Pushes AER as a structured attachment to the originating ticket \\
+    \addlinespace
+    Replay Runner & Drives deterministic replay & Re-runs agent step-by-step, injecting recorded responses \\
+    \addlinespace
+    Divergence Tracker & Detects path changes & Compares step sequence of original vs. modified replay \\
+    \addlinespace
+    Jira Forge Panel & Developer-facing UI & Step viewer, prompt editor, diff view, mock badges — all in Jira \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\subsection{Recording Pipeline}
+
+During a live agent run, the gommage proxy operates as follows:
+
+\begin{enumerate}[leftmargin=*]
+  \item \textbf{Session open.} A unique \texttt{run\_id} is generated and bound to the originating Jira ticket ID.
+  \item \textbf{LLM intercept.} Every call to the LLM client is intercepted; the full \texttt{messages} array (prompt, system message, prior context) and the response are captured as an \texttt{LLMStep} record.
+  \item \textbf{Tool intercept.} Every tool call is intercepted before execution; the tool name, input parameters, return value, latency, and a \texttt{side\_effect} classification are stored as a \texttt{ToolStep} record.
+  \item \textbf{State snapshot.} The agent's context window at each step is serialised as a JSON blob — the minimal reproduction of what the LLM saw.
+  \item \textbf{AER finalisation.} On run completion (success or failure), all step records are assembled into a single AER document and attached to the Jira ticket.
+\end{enumerate}
+
+\subsection{Replay Pipeline}
+
+\begin{enumerate}[leftmargin=*]
+  \item \textbf{AER load.} The AER for a given \texttt{run\_id} is loaded from storage.
+  \item \textbf{Mock Registry armed.} All tools tagged \texttt{side\_effect: true} are pre-registered to return their recorded payloads instead of calling live endpoints.
+  \item \textbf{Step-by-step execution.} The agent is re-run with the original initial prompt. At each LLM call, the intercepted context is compared to the recorded snapshot. At each tool call, the Mock Registry intercepts and returns the recorded response.
+  \item \textbf{Divergence point (optional).} If the developer edits a prompt at step $N$ or injects a modified tool response, the Divergence Tracker records the branch point. From step $N$ onward, LLM outputs may differ; all remaining recorded tool responses are still returned, maintaining determinism for the non-edited portion.
+\end{enumerate}
+
+\subsection{AER Schema (Excerpt)}
+
+\begin{lstlisting}[language=Python, caption={AER schema — core step structure}]
+class AERStep(BaseModel):
+    step_id: int
+    step_type: Literal["llm_call", "tool_call"]
+    # LLM fields
+    messages: Optional[List[dict]]      # Full prompt array
+    response: Optional[str]             # Raw LLM output
+    token_count: Optional[int]
+    # Tool fields
+    tool_name: Optional[str]
+    tool_input: Optional[dict]
+    tool_output: Optional[Any]
+    latency_ms: Optional[float]
+    side_effect: bool = False           # Is this a destructive call?
+    mock_required: bool = False         # Must be mocked in replay?
+    # Reasoning provenance (Vispute 2026)
+    intent: Optional[str]              # Why did the agent take this step?
+    observation: Optional[str]         # What did it conclude?
+    inference: Optional[str]           # How did this shape its strategy?
+    versioned_plan: Optional[dict]     # Plan with revision rationale
+    evidence_chain: Optional[list]     # Evidence collected
+    delegation_chain: Optional[list]   # Delegation authority
+
+class AgentExecutionRecord(BaseModel):
+    run_id: str
+    jira_ticket_id: str
+    agent_name: str
+    started_at: datetime
+    completed_at: Optional[datetime]
+    status: Literal["success", "failure", "partial"]
+    steps: List[AERStep]
+    verdict: Optional[str]
+    confidence: Optional[float]
+\end{lstlisting}
+
+% ─── 4. Technology Choices ───────────────────────────────────────────────────
+\section{Technology Choices \& Justification}
+
+\subsection{LangGraph as the Agent Framework}
+
+LangGraph is chosen as the primary agent framework for three reasons: (i) its \textit{checkpointer} interface provides natural hook points for the LLM Proxy to intercept state at each super-step; (ii) it supports time-travel debugging natively — a conceptual precursor to our replay system that we extend with side-effect mocking; (iii) its graph-based execution model produces a clean step sequence that maps directly to our AER step list. Teams may also wrap CrewAI or raw LangChain agents, since both ultimately make calls through the same LLM client interface.
+
+\subsection{Claude (Anthropic API) as the LLM}
+
+The demo agent uses Claude Sonnet via the Anthropic Messages API. The choice is justified by: (i) structured output reliability for the triage classification task; (ii) long-context fidelity — the proxy must pass the accumulated context window unchanged, and Claude maintains coherence over long message arrays; (iii) deterministic replay compatibility — the proxy controls the messages array, and Claude's behaviour on an identical array is consistent enough for debugging purposes (though not bit-identical).
+
+\subsection{Atlassian Forge for the UI}
+
+The Jira-native replay panel is built with Atlassian Forge (UI Kit 2 + React). The decision is justified by:
+
+\begin{itemize}[leftmargin=*]
+  \item \textbf{No external hosting.} Forge apps run serverlessly inside Atlassian's infrastructure, satisfying the hackathon requirement for a self-contained demo.
+  \item \textbf{Native attachment access.} Forge has direct access to Jira attachments and issue fields via the \texttt{@forge/api} SDK, enabling the panel to load the AER without any external API calls.
+  \item \textbf{Compliance posture.} All trace data stays inside the customer's Atlassian tenant — a key enterprise concern for sensitive agent traces.
+\end{itemize}
+
+\subsection{SQLite for Local Storage}
+
+Local development and the hackathon demo use SQLite as the AER store. This choice is deliberate: it requires zero infrastructure, makes the demo portable, and is sufficient for the synthetic test set. The production architecture would use PostgreSQL or a columnar store to enable the cross-run behavioral analytics that the AER model is designed for \cite{vispute2026}. We document this explicitly as a scale-out decision in our Architecture Decision Record.
+
+\subsection{Pydantic v2 for Schema Enforcement}
+
+All AER records are validated through Pydantic v2 models at serialisation time. This provides: (i) type safety for the step records; (ii) automatic JSON serialisation / deserialisation; (iii) forward-compatibility via \texttt{model\_config} — schema evolution can add optional fields without breaking existing records.
+
+% ─── 5. Feature Design ───────────────────────────────────────────────────────
+\section{Feature Design \& Implementation}
+
+\subsection{Mock Registry: Side-Effect Detection}
+
+The Mock Registry is the most critical safety component. It prevents any live tool execution during replay. Detection works at two levels:
+
+\begin{itemize}[leftmargin=*]
+  \item \textbf{Static classification.} A curated list of tool name patterns (\texttt{send\_email}, \texttt{post\_slack}, \texttt{update\_jira\_status}, \texttt{execute\_sql\_write}) are pre-tagged as \texttt{side\_effect: true} at registration time.
+  \item \textbf{AER-driven classification.} During recording, the system classifies tools that produced non-idempotent outputs (HTTP 201/202 responses, database row count changes) and sets \texttt{mock\_required: true} in the step record. This classification persists in the AER and is used automatically in replay.
+\end{itemize}
+
+During replay, the Mock Registry intercepts all tool calls before execution. If the tool is in the mock list, it returns the recorded \texttt{tool\_output} from the AER step. A \textbf{MockBadge} component in the Jira panel renders a visual indicator on mocked steps so the developer always knows which calls were intercepted.
+
+\subsection{Divergence Editing}
+
+The developer can edit at any step $N$ in the Replay Panel:
+
+\begin{itemize}[leftmargin=*]
+  \item \textbf{Prompt edit}: Modifies the \texttt{messages} array before the LLM call at step $N$. The LLM produces a new output. From step $N+1$, the Replay Runner continues to inject recorded tool responses for all subsequent steps — only the LLM outputs may differ.
+  \item \textbf{Tool response injection}: Replaces the recorded \texttt{tool\_output} at a specific \texttt{ToolStep} with a manually provided value. The agent sees the corrected response and may take a different path.
+\end{itemize}
+
+The Divergence Tracker records the branch point and constructs a diff of the two trajectories: original vs. modified. This is rendered as a side-by-side step comparison in the Jira panel.
+
+\subsection{Jira-Native Workflow}
+
+The full workflow requires zero external tools:
+
+\begin{enumerate}[leftmargin=*]
+  \item Agent runs and fails on ticket \texttt{PROJ-4421}. gommage attaches the AER to the ticket automatically.
+  \item Developer opens \texttt{PROJ-4421} in Jira. The gommage panel appears in the right sidebar.
+  \item Developer clicks \textbf{Replay in Debug Mode}. The panel loads the AER and renders the step list.
+  \item Developer identifies the failing step, edits the prompt, and clicks \textbf{Continue}.
+  \item Developer clicks \textbf{Create Fix Issue} to open a pre-filled Jira issue with the modified prompt and a link to the debug trace.
+\end{enumerate}
+
+% ─── 6. Evaluation ───────────────────────────────────────────────────────────
+\section{Evaluation Methodology}
+
+We define two primary metrics to assess gommage's correctness.
+
+\begin{tcolorbox}[metricbox]
+  \textbf{Replay Fidelity Score (RFS)} — measures whether replay re-presents identical LLM input contexts.
+  \[
+    \text{RFS} = \frac{\text{steps where } \textit{messages}_{\text{replay}} = \textit{messages}_{\text{original}}}{\text{total replay steps}}
+  \]
+  \textit{Target: RFS $\geq 0.95$ on synthetic test suite.}
+\end{tcolorbox}
+
+\vspace{0.5em}
+
+\begin{tcolorbox}[metricbox]
+  \textbf{Mock Recall Rate (MRR)} — measures whether all side-effecting tool calls are intercepted.
+  \[
+    \text{MRR} = \frac{\text{side-effecting calls correctly mocked}}{\text{total side-effecting calls in AER}}
+  \]
+  \textit{Target: MRR = 1.0 (zero false negatives — no live calls during replay).}
+\end{tcolorbox}
+
+\vspace{0.5em}
+
+The evaluation suite covers three synthetic scenarios drawn directly from the hackathon specification: the Side-Effect Trap (Scenario A), Divergence Testing (Scenario B), and Compliance Audit (Scenario C). Each scenario is replayed 10 times to verify determinism.
+
+% ─── 7. 5-Day Plan ───────────────────────────────────────────────────────────
+\section{5-Day Implementation Plan}
+
+\begin{table}[h!]
+  \centering
+  \caption{5-day execution plan (Claude Code accelerated)}
+  \begin{tabularx}{\textwidth}{C{1.2cm}L{3.5cm}L{7.5cm}}
+    \toprule
+    \textbf{Day} & \textbf{Focus} & \textbf{Key Deliverables} \\
+    \midrule
+    \textbf{1} & Foundation \& Schema &
+      AER Pydantic schema; LLM Proxy stub; Tool Proxy stub;
+      SQLite store; Jira attachment via REST API; demo agent skeleton \\
+    \addlinespace
+    \textbf{2} & Recording Pipeline &
+      Full trajectory recording on the demo triage agent;
+      side-effect auto-classification; step snapshot serialiser;
+      end-to-end: run agent, AER attached to ticket \\
+    \addlinespace
+    \textbf{3} & Replay Engine &
+      Deterministic Replay Runner; Mock Registry with pre-armed interceptors;
+      Divergence Tracker; prompt-edit injection; tool-response injection;
+      unit tests: RFS and MRR on Scenario A \\
+    \addlinespace
+    \textbf{4} & Jira UI &
+      Forge panel scaffold; StepViewer component; PromptEditor with
+      inline textarea; MockBadge visual indicator; DiffViewer for
+      original vs.\ modified path; "Create Fix Issue" button \\
+    \addlinespace
+    \textbf{5} & Evaluation \& Demo &
+      Full evaluation suite (Scenarios A, B, C); RFS and MRR computed;
+      evaluation report written; end-to-end demo video recorded;
+      README and architecture diagram finalised \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+% ─── 8. NFRs ─────────────────────────────────────────────────────────────────
+\section{Non-Functional Requirements}
+
+\paragraph{Responsiveness.} The recording proxy adds a target overhead of $< 50$ms per step (serialisation + SQLite write). Replay latency is dominated by LLM inference; tool calls return instantly from the mock store. Latency choices are justified by the debugging use case, where determinism matters more than speed.
+
+\paragraph{Reliability.} The proxy is designed to fail-open: if the AER serialiser encounters an error, the agent run continues unaffected and the error is logged. A partial AER is still recorded and attached. Edge cases handled: agent crashes mid-run (partial AER marked \texttt{status: partial}), tool returns null (recorded as-is), LLM returns empty response (captured with error flag).
+
+\paragraph{Scalability.} The local SQLite store is replaced by PostgreSQL in production. AERs are substantially more compact than LangGraph cumulative checkpoints (Vispute 2026 preliminary analysis shows 60–80\% storage reduction), since we capture only the structured step data, not the full serialised state at each checkpoint. With 10$\times$ the run volume, the schema is unchanged; only the storage backend scales.
+
+% ─── 9. Bonus Points ─────────────────────────────────────────────────────────
+\section{Bonus Points Addressed}
+
+\begin{itemize}[leftmargin=*]
+  \item \textbf{Protocol gap documented.} We document the gap between LangGraph checkpointers (which capture computational state) and the AER (which captures reasoning provenance as a queryable primitive), grounded in \cite{vispute2026}. The Mock Registry addresses the specific gap of side-effect-safe replay, which existing systems do not natively provide.
+  \item \textbf{Self-evaluation.} The Replay Panel surfaces a \texttt{confidence} field from the AER's structured verdict, which the demo agent populates per Vispute's evidence chain model. Low-confidence runs are flagged with a visual indicator in the step list.
+  \item \textbf{Open contribution.} The AER schema and the Mock Registry classification logic will be released as a standalone Python package (\texttt{gommage-sdk}), documented as a reusable debugging architecture pattern for LLM agents in Atlassian environments.
+\end{itemize}
+
+% ─── 10. Conclusion ──────────────────────────────────────────────────────────
+\section{Conclusion}
+
+gommage addresses a structural gap in enterprise AI agent infrastructure: the inability to reproduce, inspect, and safely debug LLM agent failures in production. By grounding the system in the AER provenance model \cite{vispute2026}, building a transparent proxy that requires no modifications to the agent's core architecture, and surfacing the entire debugging workflow natively inside Jira, we deliver a system where AI is the mechanism — not a feature. Remove the structured recording, deterministic replay, and side-effect mock layer, and the debugging problem is unsolved. That is the bar the specification sets, and that is the bar gommage is built to clear.
+
+% ─── References ──────────────────────────────────────────────────────────────
+\newpage
+\begin{thebibliography}{9}
+
+\bibitem{vispute2026}
+Vispute, N. (2026).
+\textit{Reasoning Provenance for Autonomous AI Agents: Structured Behavioral Analytics Beyond State Checkpoints and Execution Traces.}
+arXiv:2603.21692 [cs.AI]. Oracle Cloud Infrastructure.
+
+\bibitem{ains2026}
+AINS 4.0 \& Vectors. (2026).
+\textit{AINS Hackathon 2026 — Technical Specification: AI for Enterprise Automation.}
+Use Case 2: Agent Execution Tracer and Deterministic Replay Engine.
+
+\bibitem{langgraph}
+LangChain, Inc. (2024).
+\textit{LangGraph: Build Stateful, Multi-Actor Applications with LLMs.}
+\url{https://langchain-ai.github.io/langgraph/}
+
+\bibitem{forge}
+Atlassian. (2024).
+\textit{Forge Developer Documentation — Jira UI Kit 2.}
+\url{https://developer.atlassian.com/platform/forge/}
+
+\bibitem{agentops}
+AgentOps. (2024).
+\textit{AgentOps: Enabling Observability of LLM Agents.}
+arXiv:2411.05285.
+
+\bibitem{prov}
+Missier, P., Belhajjame, K., \& Cheney, J. (2013).
+\textit{The W3C PROV Family of Specifications for Modelling Provenance Metadata.}
+EDBT 2013.
+
+\end{thebibliography}
+
+\end{document}
