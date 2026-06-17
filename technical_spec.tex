@@ -1,0 +1,463 @@
+% !TeX program = lualatex
+\documentclass[11pt, a4paper]{article}
+
+% ─── Typography & Fontspec (Clair Obscur Official Fonts) ─────────────────────
+\usepackage{geometry}
+\geometry{margin=2.5cm, top=3cm, bottom=3cm}
+\usepackage{microtype}
+
+\usepackage{fontspec}
+% Official fonts mapped from Clair Obscur: Expedition 33 UI guidelines
+\newfontfamily\titlefont{Cinzel}
+\newfontfamily\numberfont{Bebas Neue}
+\newfontfamily\dialogfont{EB Garamond}
+\setmonofont{Courier New} % Fallback for code blocks
+
+\linespread{1.1} % Slight line spacing increase for IM Fell readability
+
+% ─── Packages ────────────────────────────────────────────────────────────────
+\usepackage{titlesec}
+\usepackage{titling}
+\usepackage{abstract}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage{colortbl} % For coloring table rules
+\usepackage{xcolor}
+\usepackage{graphicx}
+\usepackage{enumitem}
+\usepackage{parskip}
+\usepackage{fancyhdr}
+\usepackage{listings}
+\usepackage{tcolorbox}
+\tcbuselibrary{skins} % For advanced tcolorbox styling
+\usepackage{amsmath}
+\usepackage{caption}
+\usepackage{cite}
+
+% ─── TikZ for Illustrations ──────────────────────────────────────────────────
+\usepackage{tikz}
+\usetikzlibrary{shapes.geometric, arrows.meta, positioning, calc, fit, backgrounds}
+
+% ─── STRICT Palette Definition (Dark Mode) ───────────────────────────────────
+\definecolor{pureblack}{HTML}{000000}  % Strictly Black
+\definecolor{purewhite}{HTML}{FFFFFF}  % Strictly White
+\definecolor{goldlight}{HTML}{D4AF37}  % Gold Shade 1 (Classic/Aged Gold)
+\definecolor{golddark}{HTML}{8B6508}   % Gold Shade 2 (Deep/Dark Gold)
+\definecolor{rosered}{HTML}{B00B2E}    % Rose Petal Red
+
+% ─── Hyperref Setup ──────────────────────────────────────────────────────────
+\usepackage[colorlinks=true, linkcolor=rosered, citecolor=goldlight, urlcolor=rosered]{hyperref}
+\hypersetup{
+  pdftitle={gommage: Agent Execution Tracer and Deterministic Replay Engine},
+  pdfauthor={Clair Obscur - Ala Eddine Zaouali, Adem Saidi}
+}
+
+% ─── Table Rule Colors ───────────────────────────────────────────────────────
+\arrayrulecolor{goldlight}
+
+% ─── Title Formatting (Cinzel + Bebas Neue for Numbers) ──────────────────────
+\titleformat{\section}
+  {\titlefont\Large\bfseries\color{purewhite}}
+  {\numberfont\Large\thesection.}{0.5em}{}
+\titlespacing*{\section}{0pt}{1.5ex plus 1ex minus .2ex}{1ex plus .2ex}
+
+\titleformat{\subsection}
+  {\titlefont\large\bfseries\color{goldlight}}
+  {\numberfont\large\thesubsection.}{0.5em}{}
+
+\titleformat{\subsubsection}
+  {\titlefont\normalsize\bfseries\color{purewhite}}
+  {}{0em}{}
+
+% ─── Header / Footer (Cinzel & Bebas Neue) ───────────────────────────────────
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\titlefont\footnotesize\textcolor{golddark}{\textbf{gommage} — AINS Hackathon 2026}}
+\fancyhead[R]{\titlefont\footnotesize\textcolor{golddark}{Use Case 2 · Agent Replay Engine}}
+\fancyfoot[C]{\numberfont\Large\textcolor{purewhite}{\thepage}}
+\renewcommand{\headrulewidth}{0.8pt}
+\renewcommand{\headrule}{\hbox to\headwidth{\color{goldlight}\leaders\hrule height \headrulewidth\hfill}}
+
+% ─── Code Style ──────────────────────────────────────────────────────────────
+\lstset{
+  basicstyle=\footnotesize\ttfamily\color{purewhite},
+  backgroundcolor=\color{pureblack},
+  frame=single, % Added border so it pops against the black page
+  xleftmargin=10pt,
+  xrightmargin=10pt,
+  aboveskip=15pt,
+  belowskip=15pt,
+  rulecolor=\color{golddark},
+  breaklines=true,
+  showstringspaces=false,
+  keywordstyle=\color{goldlight}\bfseries,
+  commentstyle=\color{golddark}\itshape,
+  stringstyle=\color{rosered}
+}
+
+% ─── Callout Boxes ───────────────────────────────────────────────────────────
+\tcbset{
+  pitchbox/.style={
+    enhanced,
+    colback=pureblack,
+    coltext=purewhite,
+    colframe=goldlight,
+    boxrule=1.5pt,
+    arc=0pt, % Sharp corners
+    left=15pt, right=15pt, top=15pt, bottom=15pt,
+    fonttitle=\titlefont\large\bfseries,
+    coltitle=purewhite,
+    title=#1,
+    attach boxed title to top left={yshift=-3mm, xshift=5mm},
+    boxed title style={colback=rosered, arc=0pt, boxrule=0pt},
+    fontupper=\dialogfont\large\itshape % EB Garamond for narrative text
+  },
+  metricbox/.style={
+    enhanced,
+    colback=pureblack,
+    colframe=goldlight,
+    coltext=purewhite,
+    boxrule=1.2pt,
+    arc=0pt,
+    left=10pt, right=10pt, top=10pt, bottom=10pt,
+    fontupper=\dialogfont
+  }
+}
+
+% ─── Table Column Types ──────────────────────────────────────────────────────
+\newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
+\newcolumntype{C}[1]{>{\centering\arraybackslash}p{#1}}
+
+% ─── Document ────────────────────────────────────────────────────────────────
+\begin{document}
+\pagecolor{pureblack} % ENFORCE DARK MODE BACKGROUND
+\color{purewhite}     % ENFORCE WHITE TEXT
+
+% ─── Title Page ──────────────────────────────────────────────────────────────
+\begin{titlepage}
+  \centering
+  \vspace*{2cm}
+
+  {\titlefont\small\textcolor{goldlight}{\textbf{AINS HACKATHON 2026 · USE CASE \numberfont 2}}}
+
+  \vspace{1.2cm}
+
+  {\titlefont\Huge\bfseries\color{purewhite} gommage}
+
+  \vspace{0.6cm}
+
+  {\titlefont\Large\color{rosered} Agent Execution Tracer \& Deterministic Replay Engine}
+
+  \vspace{0.6cm}
+
+  {\titlefont\large\color{goldlight} Technical Architecture \& Design Justification}
+
+  \vspace{1.5cm}
+  {\color{goldlight}\rule{0.6\textwidth}{1.5pt}}
+  \vspace{1.5cm}
+
+  \begin{tcolorbox}[pitchbox=The Vision]
+    Imagine this — entirely inside Jira: An agent fails on a sensitive ticket. Its entire trajectory — prompts, tool calls, memory — is automatically recorded and attached to the ticket. A developer opens the ticket, clicks \textbf{"Replay in Debug Mode"}. The tool call that would have sent an email is automatically mocked. The developer rewrites the prompt at step \numberfont 4\dialogfont, hits Continue, and watches the agent take a safer path — still using the original recorded responses. Once satisfied, they create a linked Jira issue for the fix, with the debug trace as evidence.
+  \end{tcolorbox}
+
+  \vspace{2.5cm}
+
+  \begin{table}[h]
+    \centering\dialogfont\color{purewhite}
+    \begin{tabular}{L{3cm} L{10cm}}
+      \textbf{\titlefont Team}    & \textbf{Clair Obscur} \\
+      \addlinespace[0.2em]
+      \textbf{\titlefont Authors} & Ala Eddine Zaouali (\href{mailto:alaeddine.zaouali@insat.ucar.tn}{\texttt{alaeddine.zaouali@insat.ucar.tn}}) \\
+                       & Adem Saidi (\href{mailto:adem.saidi@insat.ucar.tn}{\texttt{adem.saidi@insat.ucar.tn}}) \\
+      \addlinespace[0.2em]
+      \textbf{\titlefont Track}   & AINS Hackathon \numberfont 2026\dialogfont, Use Case \numberfont 2 \\
+      \textbf{\titlefont Date}    & June \numberfont 2026 \\
+      \textbf{\titlefont Version} & \numberfont 1.0\dialogfont~— First Submission \\
+    \end{tabular}
+  \end{table}
+
+  \vfill
+  {\titlefont\footnotesize\textcolor{golddark}{Organised by AINS \numberfont 4.0 \titlefont in partnership with Vectors}}
+\end{titlepage}
+
+% ─── Abstract ────────────────────────────────────────────────────────────────
+\begin{abstract}
+\noindent
+AI agents deployed in enterprise Atlassian environments fail in ways that are fundamentally non-reproducible using classical debugging methods. When an agent re-executes, the LLM produces different outputs; worse, re-execution may trigger side-effecting tools — sending emails, modifying tickets — during the debug session itself. \textbf{gommage} is an infrastructure-layer proxy that (i) transparently records the full trajectory of any LLM agent run as a structured \textit{Agent Execution Record} (AER), (ii) replays that trajectory deterministically by intercepting and mocking all tool calls, (iii) surfaces this workflow natively inside Jira, and (iv) employs a transport-layer verification mechanism intercepting calls at the stdio, shell, and filesystem layers to reconcile self-reported AER fields. This document justifies the technical choices underpinning gommage, grounds them in the AER provenance model of Vispute (\numberfont 2026\rmfamily), and presents the \numberfont 5\rmfamily-day implementation plan.
+\end{abstract}
+
+\vspace{1cm}
+\tableofcontents
+\newpage
+
+% ─── 1. Problem ──────────────────────────────────────────────────────────────
+\section{Problem Framing}
+
+\subsection{The Debugging Gap}
+
+Classical software debugging relies on two guarantees: \textit{reproducibility} (running the same code on the same input produces the same state) and \textit{isolation} (reproducing a bug does not cause additional side effects in production). Both guarantees collapse for LLM-based agents.
+
+\begin{itemize}[leftmargin=1.5em, itemsep=0.3em]
+  \item \textbf{Non-reproducibility:} The same instruction passed to an LLM agent twice yields different tool call sequences, reasoning chains, and outputs due to sampling stochasticity. Re-running a failed agent to debug it produces a different failure — or no failure at all.
+  \item \textbf{Side effects during debug:} A failed Jira triaging agent, re-run by an engineer, may send a customer email or overwrite a ticket during the debug session — compounding the original damage.
+  \item \textbf{Opaque state:} Simple log files capture what happened but not \textit{why}: what prompt the LLM received at each step, what context was in its window, and what it inferred before each action.
+\end{itemize}
+
+What is missing is an enterprise-grade \textbf{Flight Recorder}: infrastructure that captures every LLM input, context variable, and tool-call payload during a live run, then allows developers to re-execute the agent step-by-step using the exact recorded tool responses — guaranteeing determinism without touching live APIs.
+
+\subsection{Scope and Target System}
+gommage targets agents deployed in the Atlassian ecosystem (Jira Software, Jira Service Management) that interact with external tools (databases, email, webhooks). The demo agent is a \textbf{Jira ticket triaging agent} that reads incoming tickets, queries a database for SLA context, and routes tickets to teams — with an email notification on completion.
+
+% ─── 2. Methodology ──────────────────────────────────────────────────────────
+\section{Theoretical Foundation}
+
+\subsection{The Agent Execution Record (AER)}
+
+Our core data model is grounded in Vispute (\numberfont 2026\rmfamily), \textit{Reasoning Provenance for Autonomous AI Agents} \cite{vispute2026}. Vispute formalises a distinction that is central to our design:
+
+\begin{quote}
+\dialogfont\large\itshape
+"State checkpoint systems save serialized snapshots of the agent's computational state. What they do not contain as a structured field is \textbf{why} the agent chose each action, \textbf{what it concluded} from each observation, or \textbf{how each conclusion shaped its strategy}."
+\end{quote}
+
+The AER model introduces structured reasoning provenance as a first-class schema primitive. Vispute further defines three replay modes — \textbf{mock replay} being the one gommage implements — which re-executes the agent using recorded tool responses without calling live endpoints.
+
+We extend the AER concept in two directions suited to our Jira-native context:
+\begin{enumerate}[leftmargin=1.5em, itemsep=0.3em]
+  \item \textbf{Side-effect classification field:} Each tool call record is tagged with a \texttt{side\_effect} boolean and a \texttt{mock\_required} flag, enabling the Mock Registry to automatically intercept destructive calls during replay.
+  \item \textbf{Jira attachment envelope:} The AER is serialised with a top-level \texttt{jira\_ticket\_id} field and pushed as a structured attachment to the originating ticket via the Jira REST API.
+\end{enumerate}
+
+% ─── 3. Technical Architecture ───────────────────────────────────────────────
+\section{Technical Architecture}
+
+\subsection{System Architecture \& Flow}
+
+The system splits into a \textbf{Recording Pipeline} (during live operations) and a \textbf{Replay Pipeline} (during debugging). Figure \numberfont 1 \rmfamily visualizes how the Proxy layers sit between the Agent, the LLM, and external Tools without requiring code modifications to the Agent itself.
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[
+      font=\dialogfont,
+      >=Stealth,
+      node distance=1.5cm and 2cm,
+      % Strict Dark Mode Palette Node Styles
+      agent/.style={rectangle, draw=purewhite, fill=pureblack, thick, minimum width=3cm, minimum height=1.2cm, align=center, text=purewhite},
+      proxy/.style={rectangle, draw=goldlight, fill=pureblack, thick, minimum width=2.8cm, minimum height=1cm, align=center, text=purewhite},
+      external/.style={rectangle, draw=golddark, fill=pureblack, dashed, thick, minimum width=2.8cm, minimum height=1cm, align=center, text=purewhite},
+      db/.style={cylinder, shape border rotate=90, aspect=0.25, draw=purewhite, fill=pureblack, thick, minimum width=2cm, minimum height=1.5cm, align=center, text=purewhite},
+      ui/.style={rectangle, draw=rosered, fill=pureblack, thick, minimum width=3cm, minimum height=1.2cm, align=center, text=purewhite},
+      % Lines
+      arrow/.style={->, thick, draw=purewhite},
+      dashedarrow/.style={->, dashed, thick, draw=goldlight}
+    ]
+
+    % --- Nodes ---
+    \node[agent] (agent) {\textbf{\titlefont LangGraph Agent}\\(Unmodified Core)};
+
+    \node[proxy, below left=of agent, xshift=1cm] (llmproxy) {LLM Proxy};
+    \node[proxy, below right=of agent, xshift=-3cm] (toolproxy) {Tool Proxy};
+
+    \node[external, below=of llmproxy] (llm) {LLM API};
+    \node[external, below=of toolproxy] (tools) {External Tools\\(Email, Jira API)};
+
+    \node[db, below=6cm of agent] (aer) {AER\\Storage\\(SQLite)};
+
+    \node[ui, right=3.5cm of agent] (jira) {\textbf{\titlefont Jira Forge}\\Replay Panel};
+    \node[proxy, below=of jira] (mock) {Mock Registry};
+
+    % --- Edges ---
+    % Live Flow
+    \draw[arrow, <->] (agent) -- node[above, sloped, font=\dialogfont\scriptsize, text=purewhite] {Intercepts Prompts} (llmproxy);
+    \draw[arrow, <->] (agent) -- node[above, sloped, font=\dialogfont\scriptsize, text=purewhite] {Intercepts Tools} (toolproxy);
+    \draw[arrow, <->] (llmproxy) -- (llm);
+    \draw[arrow, <->] (toolproxy) -- (tools);
+
+    % Recording Flow
+    \draw[dashedarrow] (llmproxy) |- node[near start, left, font=\dialogfont\scriptsize, text=goldlight] {Records trace} (aer);
+    \draw[dashedarrow] (toolproxy) |- node[near start, right, font=\dialogfont\scriptsize, text=goldlight] {Records payloads} (aer);
+
+    % Replay Flow
+    \draw[arrow] (jira) |- node[near start, right, font=\dialogfont\scriptsize, text=purewhite] {Loads trace} (aer);
+    \draw[arrow, color=rosered] (jira) -- node[right, font=\dialogfont\scriptsize, text=rosered] {Pre-arms} (mock);
+    \draw[dashedarrow, color=rosered] (mock) -- node[below, font=\dialogfont\scriptsize, text=rosered] {Injects payload (Mocks)} (toolproxy);
+
+    % Grouping / Backgrounds
+    \begin{scope}[on background layer]
+      \node[fit=(llmproxy)(toolproxy)(mock), fill=pureblack, draw=golddark, dashed, thick, inner sep=15pt, label={[font=\titlefont\bfseries\color{goldlight}, anchor=north west]north west:gommage Proxy Layer}] {};
+    \end{scope}
+
+  \end{tikzpicture}
+  \caption{\color{purewhite} \dialogfont gommage Architectural Flow. The proxy layer seamlessly intercepts LLM and tool calls. During replay, the Jira UI arms the Mock Registry to inject recorded payloads instead of hitting external tools.}
+\end{figure}
+
+\subsection{Pipeline Mechanics}
+During a **live run**, the unique \texttt{run\_id} binds to the Jira ticket. Every call to the Anthropic API is captured as an \texttt{LLMStep}, and every tool execution is captured as a \texttt{ToolStep}. Upon completion, the AER Serialiser assembles these into a JSON structured trace attached natively to Jira.
+
+During a **replay run**, the developer triggers execution from the Jira Replay Panel. The Mock Registry pre-loads all tools tagged \texttt{side\_effect: true}. As the agent walks the graph, the Tool Proxy intercepts external calls, queries the Mock Registry, and safely returns the exact output the agent saw originally.
+
+\subsection{AER Schema Definition}
+To guarantee Pydantic v\numberfont 2 \rmfamily validation and robust typing, gommage utilizes the following structure:
+
+\begin{lstlisting}[language=Python]
+class AERStep(BaseModel):
+    step_id: int
+    step_type: Literal["llm_call", "tool_call"]
+    
+    # LLM Context
+    messages: Optional[List[dict]]      
+    response: Optional[str]             
+    
+    # Tool Context
+    tool_name: Optional[str]
+    tool_input: Optional[dict]
+    tool_output: Optional[Any]
+    side_effect: bool = False           # Flag for destructive calls
+    mock_required: bool = False         # Enforces mock on replay
+    
+    # Reasoning Provenance (Vispute 2026)
+    intent: Optional[str]              
+    inference: Optional[str]           
+    evidence_chain: Optional[list]     
+
+class AgentExecutionRecord(BaseModel):
+    run_id: str
+    jira_ticket_id: str
+    steps: List[AERStep]
+    status: Literal["success", "failure", "partial"]
+\end{lstlisting}
+
+% ─── 4. Technology Choices ───────────────────────────────────────────────────
+\section{Technology Choices \& Justification}
+
+\begin{itemize}[leftmargin=1.5em, itemsep=0.5em]
+  \item \textbf{LangGraph \& LLM API:} LangGraph's checkpointer provides natural hooking points for graph super-steps, whilst LLM Sonnet excels at structured output generation and maintains high fidelity across long context arrays during deterministic replay.
+  \item \textbf{Atlassian Forge (UI Kit \numberfont 2\rmfamily):} The Jira-native replay panel runs serverlessly inside Atlassian's infrastructure. Forge's \texttt{@forge/api} allows direct access to the AER attachment, ensuring sensitive trace data never leaves the customer's tenant boundary.
+  \item \textbf{SQLite (Demo) to PostgreSQL (Prod):} Local development leverages SQLite for immediate portability. Production scale-out utilizes PostgreSQL to facilitate cross-run behavioral analytics \cite{vispute2026}.
+\end{itemize}
+
+% ─── 5. Feature Design ───────────────────────────────────────────────────────
+\section{Feature Design \& Divergence Tracking}
+
+\subsection{Mock Registry \& Safety Guards}
+The Mock Registry prevents live tool execution during replay. Detection uses both static patterns (\texttt{send\_email}, \texttt{execute\_sql\_write}) and dynamic AER-driven classification (HTTP \numberfont 201/202 \rmfamily status codes observed during the live run). A \textbf{MockBadge} UI component renders inside Jira so developers explicitly see which API calls were suppressed.
+
+\subsection{Divergence Editing}
+The true power of gommage lies in Divergence Editing. A developer can modify the prompt at step $N$. The LLM produces a new output, branching the trajectory. From $N+1$ onward, gommage continues to supply recorded tool responses where applicable, but the agent's logic pathway updates. 
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[
+      font=\dialogfont,
+      >=Stealth,
+      node distance=1.5cm and 1cm,
+      step/.style={circle, draw=purewhite, fill=pureblack, thick, minimum size=0.9cm, inner sep=0pt, text=purewhite},
+      edit/.style={rectangle, draw=rosered, fill=pureblack, thick, minimum height=0.8cm, inner sep=6pt, text=purewhite},
+      arrow/.style={->, thick, draw=purewhite},
+      diverge/.style={->, thick, draw=rosered}
+    ]
+
+    % Main Sequence
+    \node[step] (s1) {\numberfont\Large 1};
+    \node[below=0.1cm of s1, font=\dialogfont\scriptsize, align=center, text=purewhite] {LLM\\Call};
+
+    \node[step, right=of s1] (s2) {\numberfont\Large 2};
+    \node[below=0.1cm of s2, font=\dialogfont\scriptsize, align=center, text=purewhite] {Tool\\(Mocked)};
+
+    \node[step, right=of s2] (s3) {\numberfont\Large 3};
+    \node[below=0.1cm of s3, font=\dialogfont\scriptsize, align=center, text=purewhite] {LLM\\Call};
+
+    \node[step, right=of s3, draw=golddark, fill=pureblack, text=golddark, dashed] (s4a) {\numberfont\Large 4};
+    \node[below=0.1cm of s4a, font=\dialogfont\scriptsize, align=center, text=golddark] {Tool\\(Original)};
+
+    % Divergent Branch
+    \node[edit, above=1.2cm of s4a] (s4b) {\textbf{\numberfont\Large 4'} Mod. Prompt};
+    \node[above=0.1cm of s4b, font=\dialogfont\scriptsize, align=center, text=rosered] {Developer Override};
+
+    \node[step, right=of s4b, draw=rosered, fill=pureblack, text=purewhite] (s5b) {\numberfont\Large 5'};
+    \node[below=0.1cm of s5b, font=\dialogfont\scriptsize, align=center, text=rosered] {New Logic\\Path};
+
+    % Connections
+    \draw[arrow] (s1) -- (s2);
+    \draw[arrow] (s2) -- (s3);
+    \draw[arrow, dashed, draw=golddark] (s3) -- (s4a);
+    
+    \draw[diverge] (s3) |- node[near start, left, xshift=-0.1cm, font=\dialogfont\scriptsize, text=rosered] {Edit} (s4b);
+    \draw[diverge] (s4b) -- (s5b);
+
+  \end{tikzpicture}
+  \caption{\color{purewhite} \dialogfont Divergence Tracking. The developer edits the prompt at Step \numberfont 4\dialogfont, causing the Replay Engine to fork the state tree. Original mocked data (Steps \numberfont 1–3\dialogfont) remains intact, isolating the specific logic failure.}
+\end{figure}
+
+% ─── 6. Evaluation ───────────────────────────────────────────────────────────
+\section{Evaluation Methodology}
+
+We define two primary metrics to assess gommage's correctness during the hackathon testing phase.
+
+\begin{tcolorbox}[metricbox]
+  \textbf{\titlefont\large Replay Fidelity Score (RFS)} — measures whether replay re-presents identical contexts.
+  \begin{center}
+    {\numberfont\Large RFS $\geq$ 0.95}
+  \end{center}
+  \textit{Target: RFS $\geq \numberfont 0.95$ \dialogfont on synthetic test suite.}
+\end{tcolorbox}
+
+\vspace{0.2em}
+
+\begin{tcolorbox}[metricbox]
+  \textbf{\titlefont\large Mock Recall Rate (MRR)} — measures whether all side-effecting tool calls are intercepted.
+  \begin{center}
+    {\numberfont\Large MRR = 1.0}
+  \end{center}
+  \textit{Target: MRR = \numberfont 1.0 \dialogfont (Zero false negatives — absolutely no live calls during replay).}
+\end{tcolorbox}
+
+% ─── 7. 5-Day Plan ───────────────────────────────────────────────────────────
+\section{5-Day Implementation Plan}
+
+\begin{table}[h!]
+  \centering\dialogfont\color{purewhite}
+  \caption*{\color{purewhite}\textbf{\titlefont Execution Plan (LLM Code Accelerated)}}
+  \begin{tabularx}{\textwidth}{@{} C{1.2cm} L{3.5cm} L{10cm} @{}}
+    \toprule
+    \textbf{\titlefont Day} & \textbf{\titlefont Focus} & \textbf{\titlefont Key Deliverables} \\
+    \midrule
+    \textbf{\numberfont 1} & Foundation & AER Pydantic schema; Proxy stubs; SQLite setup; Demo agent skeleton. \\
+    \textbf{\numberfont 2} & Recording Pipe & Full trajectory recording; side-effect auto-classification; Jira attachment via REST. \\
+    \textbf{\numberfont 3} & Replay Engine & Replay Runner; Pre-armed Mock Registry; Divergence Tracker core logic. \\
+    \textbf{\numberfont 4} & Jira UI & Forge panel scaffold; StepViewer; PromptEditor; DiffViewer component. \\
+    \textbf{\numberfont 5} & Eval \& Polish & Run Scenarios A, B, C; Calculate RFS \& MRR; Finalize README \& Demo Video. \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+% ─── 8. Conclusion ───────────────────────────────────────────────────────────
+\section{Conclusion}
+
+gommage addresses a structural gap in enterprise AI agent infrastructure: the inability to reproduce, inspect, and safely debug LLM agent failures in production. By grounding the system in the AER provenance model \cite{vispute2026}, building a transparent proxy that requires no modifications to the agent's core architecture, and surfacing the entire debugging workflow natively inside Jira, we deliver a system where AI is the mechanism — not a feature. Remove the structured recording, deterministic replay, and side-effect mock layer, and the debugging problem is unsolved. That is the bar the specification sets, and that is the bar gommage is built to clear.
+
+% ─── References ──────────────────────────────────────────────────────────────
+\vspace{1cm}
+\renewcommand{\refname}{\titlefont\Large\bfseries\color{purewhite} References}
+\begin{thebibliography}{9}
+
+\bibitem{vispute2026}
+Vispute, N. (\numberfont 2026\rmfamily).
+\textit{Reasoning Provenance for Autonomous AI Agents: Structured Behavioral Analytics Beyond State Checkpoints and Execution Traces.}
+arXiv:\numberfont 2603.21692 \rmfamily [cs.AI]. Oracle Cloud Infrastructure.
+
+\bibitem{ains2026}
+AINS \numberfont 4.0 \rmfamily \& Vectors. (\numberfont 2026\rmfamily).
+\textit{AINS Hackathon \numberfont 2026 \rmfamily — Technical Specification.}
+Use Case \numberfont 2\rmfamily: Agent Execution Tracer and Deterministic Replay Engine.
+
+\bibitem{langgraph}
+LangChain, Inc. (\numberfont 2024\rmfamily). \textit{LangGraph: Build Stateful, Multi-Actor Applications with LLMs.} \url{https://langchain-ai.github.io/langgraph/}
+
+\bibitem{forge}
+Atlassian. (\numberfont 2024\rmfamily). \textit{Forge Developer Documentation — Jira UI Kit \numberfont 2\rmfamily.} \url{https://developer.atlassian.com/platform/forge/}
+
+\end{thebibliography}
+
+\end{document}
