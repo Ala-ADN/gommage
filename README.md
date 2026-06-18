@@ -262,7 +262,6 @@ gommage/
 | Layer                | Technology                            | Rationale                                                       |
 | -------------------- | ------------------------------------- | --------------------------------------------------------------- |
 | **Agent Framework**  | LangGraph / LangChain                 | Native tool-call interception hooks; checkpointer compatibility |
-| **LLM**              | Claude 3.5 Sonnet (via Anthropic API) | Best-in-class instruction following for agent tasks             |
 | **Proxy Layer**      | Python middleware + MCP interceptor   | Language-native; wraps both REST and MCP tool calls             |
 | **AER Schema**       | Pydantic v2 + JSON                    | Structured, queryable, type-safe step records                   |
 | **Storage**          | SQLite (local) / PostgreSQL (scale)   | Queryable trace store; file-based fallback for air-gap          |
