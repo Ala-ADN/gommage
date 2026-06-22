@@ -1,0 +1,101 @@
+.gommage-panel {
+  display: grid;
+  grid-template-columns: minmax(220px, 34%) 1fr;
+  gap: 16px;
+  color: #172b4d;
+  font: 14px/1.45 Inter, Arial, sans-serif;
+}
+
+.step-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.step-row {
+  align-items: center;
+  background: #fff;
+  border: 1px solid #dfe1e6;
+  border-radius: 6px;
+  color: inherit;
+  cursor: pointer;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: auto auto 1fr auto;
+  min-height: 44px;
+  padding: 8px 10px;
+  text-align: left;
+}
+
+.step-row.selected {
+  border-color: #0c66e4;
+  box-shadow: 0 0 0 1px #0c66e4;
+}
+
+.step-id,
+.step-kind,
+.step-model,
+.badge {
+  color: #44546f;
+  font-size: 12px;
+}
+
+.step-intent {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.badge {
+  border: 1px solid #dfe1e6;
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+
+.badge-mocked {
+  background: #fff7d6;
+  border-color: #f5cd47;
+  color: #7f5f01;
+}
+
+.badge-risk {
+  background: #ffebe6;
+  border-color: #ff8f73;
+  color: #ae2e24;
+}
+
+.prompt-editor {
+  display: grid;
+  gap: 8px;
+}
+
+.prompt-editor textarea {
+  border: 1px solid #dfe1e6;
+  border-radius: 6px;
+  min-height: 160px;
+  padding: 10px;
+  resize: vertical;
+}
+
+.prompt-editor button {
+  justify-self: start;
+}
+
+.diff-list {
+  margin: 16px 0 0;
+  padding-left: 20px;
+}
+
+.diff-list li {
+  margin-bottom: 10px;
+}
+
+.diff-list span {
+  display: block;
+  color: #44546f;
+}
+
+.empty-state {
+  color: #626f86;
+}

@@ -1,0 +1,18 @@
+{
+  "name": "gommage-forge-issue-panel",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "npm --prefix static/gommage-replay install && npm --prefix static/gommage-replay run build",
+    "deploy": "forge deploy",
+    "install:jira": "forge install --product jira",
+    "lint": "node --check src/index.js"
+  },
+  "dependencies": {
+    "@forge/api": "latest",
+    "@forge/resolver": "latest"
+  },
+  "devDependencies": {
+    "@forge/cli": "latest"
+  }
+}

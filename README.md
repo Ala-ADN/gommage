@@ -273,7 +273,8 @@ gommage/
 
 ## Getting Started
 
-> **Work in progress.** Full setup instructions will be added as development progresses.
+The current MVP is dependency-light: runtime code uses the Python standard
+library, while the test suite uses pytest.
 
 ### Prerequisites
 
@@ -303,21 +304,68 @@ pip install -r requirements.txt
 cp .env.example .env
 # → Fill in: ANTHROPIC_API_KEY, JIRA_CLOUD_URL, JIRA_API_TOKEN
 
-# [PLACEHOLDER] Run the demo agent with gommage enabled
-python -m recorder.proxy.llm_proxy --agent agent/jira_triage_agent.py
+# Record a local demo trace
+python main.py record-demo --ticket DEMO-101
+
+# Replay a stored trace without triggering side-effecting tools
+python main.py replay <run_id>
+
+# Run the synthetic evaluation suite
+python main.py eval
+
+# Start the local browser UI
+python main.py ui
+
+# Build the Jira-native Forge issue panel
+cd replay/ui/forge
+npm install
+npm run build
+forge register
+forge variables set GOMMAGE_BACKEND_URL https://YOUR-HTTPS-GOMMAGE-BACKEND
+forge deploy
+forge install --product jira
 ```
 
 ### Running the Demo
 
 ```bash
-# [PLACEHOLDER] Step 1: Record a live agent run
-python demo/record_run.py --ticket DEMO-101
+# Step 1: Record a demo agent run
+python main.py record-demo --ticket DEMO-101
 
 # Step 2: Open Jira and find the trace attached to DEMO-101
 # Step 3: Click "Replay in Debug Mode" in the ticket sidebar
 # Step 4: Edit the prompt at Step 4, click Continue
 # Step 5: Observe the agent take a safer path — no email sent
 ```
+
+### Local Browser UI
+
+```bash
+source .venv/bin/activate
+python main.py ui
+```
+
+Open `http://127.0.0.1:8010`, click `Record live run`, inspect the recorded
+`email.send` tool call, then click `Replay safely` to confirm the side effect is
+blocked during replay.
+
+### Jira-Native Panel
+
+The Jira-native version lives in `replay/ui/forge`. It declares a Forge
+`jira:issuePanel` called `Gommage Replay`. Inside Jira, the panel reads the
+current issue key from Forge context, records/replays through the Gommage
+backend, attaches the AER JSON trace to the issue, and can create a linked Jira
+fix issue with the trace attached as evidence.
+
+For local demos, expose the Python backend through an HTTPS tunnel before
+deploying Forge:
+
+```bash
+python main.py ui --host 0.0.0.0 --port 8010
+ngrok http 8010
+```
+
+Then set `GOMMAGE_BACKEND_URL` to the tunnel URL in Forge.
 
 ---
 
@@ -341,12 +389,12 @@ A compliance officer needs to understand what context an agent had when it appro
 
 | Criterion                                                            | Priority   | Status     |
 | -------------------------------------------------------------------- | ---------- | ---------- |
-| Record functionality: captures at least one LLM call + one tool call | **Must**   |  Planned |
-| Deterministic replay without triggering live tools                   | **Must**   |  Planned |
-| State inspection: exact prompt visible at any step                   | **Must**   |  Planned |
-| Divergence editing: modify prompt/tool result, agent takes new path  | **Should** |  Planned |
-| Jira-native: trace auto-attached to originating ticket               | **Bonus**  |  Planned |
-| Side-effect mock registry with visual badge                          | **Bonus**  |  Planned |
+| Record functionality: captures at least one LLM call + one tool call | **Must**   | Implemented in MVP |
+| Deterministic replay without triggering live tools                   | **Must**   | Implemented in MVP |
+| State inspection: exact prompt visible at any step                   | **Must**   | Implemented in schema/UI |
+| Divergence editing: modify prompt/tool result, agent takes new path  | **Should** | Implemented for replay branches |
+| Jira-native: trace auto-attached to originating ticket               | **Bonus**  | Local attachment adapter implemented |
+| Side-effect mock registry with visual badge                          | **Bonus**  | Implemented in registry/UI |
 
 ---
 

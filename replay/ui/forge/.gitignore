@@ -1,0 +1,4 @@
+node_modules/
+static/gommage-replay/node_modules/
+static/gommage-replay/build/
+.forge/

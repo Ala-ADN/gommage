@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Gommage Replay</title>
+    <link rel="stylesheet" href="/app.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <div>
+          <h1>Gommage Replay</h1>
+          <p id="status-line">Idle</p>
+        </div>
+        <form id="record-form" class="record-form">
+          <label for="ticket-input">Ticket</label>
+          <input id="ticket-input" name="ticket" value="DEMO-101" autocomplete="off" />
+          <button type="submit">Record live run</button>
+          <button id="replay-button" type="button" disabled>Replay safely</button>
+        </form>
+      </header>
+
+      <section class="metrics-bar" aria-label="Replay metrics">
+        <div>
+          <span>Run</span>
+          <strong id="metric-run">None</strong>
+        </div>
+        <div>
+          <span>Steps</span>
+          <strong id="metric-steps">0</strong>
+        </div>
+        <div>
+          <span>Side effects</span>
+          <strong id="metric-side-effects">0</strong>
+        </div>
+        <div>
+          <span>Blocked</span>
+          <strong id="metric-blocked">0</strong>
+        </div>
+        <div>
+          <span>RFS</span>
+          <strong id="metric-rfs">-</strong>
+        </div>
+        <div>
+          <span>MRR</span>
+          <strong id="metric-mrr">-</strong>
+        </div>
+      </section>
+
+      <section class="workspace">
+        <aside class="run-column">
+          <div class="section-heading">
+            <h2>Runs</h2>
+            <button id="refresh-runs" type="button">Refresh</button>
+          </div>
+          <div id="run-list" class="run-list"></div>
+        </aside>
+
+        <section class="step-column">
+          <div class="section-heading">
+            <h2>Trace</h2>
+            <span id="trace-label"></span>
+          </div>
+          <div id="step-list" class="step-list"></div>
+        </section>
+
+        <section class="detail-column">
+          <div class="section-heading">
+            <h2>Inspector</h2>
+            <button id="clear-edits" type="button" disabled>Clear edits</button>
+          </div>
+          <div id="detail-panel" class="detail-panel empty-panel">No step selected</div>
+        </section>
+      </section>
+    </main>
+    <script src="/app.js"></script>
+  </body>
+</html>

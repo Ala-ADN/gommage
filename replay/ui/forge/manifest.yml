@@ -1,0 +1,41 @@
+modules:
+  jira:issuePanel:
+    - key: gommage-replay-panel
+      resource: gommage-replay
+      resolver:
+        function: resolver
+      title: Gommage Replay
+      icon: https://developer.atlassian.com/platform/forge/images/icons/issue-panel-icon.svg
+      viewportSize: xlarge
+  jira:issueContext:
+    - key: gommage-replay-context
+      resource: gommage-replay
+      resolver:
+        function: resolver
+      title: Gommage Replay
+      label: Gommage Replay
+      icon: https://developer.atlassian.com/platform/forge/images/icons/issue-panel-icon.svg
+  function:
+    - key: resolver
+      handler: index.handler
+
+resources:
+  - key: gommage-replay
+    path: static/gommage-replay/build
+
+permissions:
+  scopes:
+    - read:jira-work
+    - write:jira-work
+  external:
+    fetch:
+      backend:
+        - address: "*.ngrok-free.app"
+        - address: "*.ngrok-free.dev"
+        - address: "*.ngrok.io"
+        - address: "*.trycloudflare.com"
+
+app:
+  runtime:
+    name: nodejs22.x
+  id: ari:cloud:ecosystem::app/a556cf7f-07d4-48ea-8f01-0aaf8ed7ab02
