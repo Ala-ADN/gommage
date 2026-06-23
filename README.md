@@ -1,4 +1,4 @@
-<img width="1436" height="360" alt="Image" src="https://github.com/user-attachments/assets/6b09bb6c-bd1c-421f-ac29-7441b08829a8" />
+<img alt="Gommage" src="https://github.com/user-attachments/assets/e6fe0fd7-29ad-494b-b459-bc7c56e74e40" />
 
 > _An enterprise-grade observability and debugging infrastructure layer that captures the exact state, tool calls, and trajectories of AI agents._
 
