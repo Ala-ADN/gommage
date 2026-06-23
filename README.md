@@ -1,4 +1,4 @@
-![Banner](https://github.com/user-attachments/assets/89ceab7a-58a2-42c6-ae08-e064b04ffce1)
+https://github.com/user-attachments/assets/89ceab7a-58a2-42c6-ae08-e064b04ffce1
 
 > _An enterprise-grade observability and debugging infrastructure layer that captures the exact state, tool calls, and trajectories of AI agents._
 
