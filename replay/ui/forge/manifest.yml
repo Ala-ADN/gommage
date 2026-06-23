@@ -1,4 +1,14 @@
 modules:
+  jira:boardAction:
+    - key: gommage-replay-board-action
+      resource: gommage-replay
+      resolver:
+        function: resolver
+      title: Gommage Replay
+      tooltip: Open the Gommage Replay dashboard
+      icon: https://developer.atlassian.com/platform/forge/images/icons/issue-panel-icon.svg
+      actionType: modal
+      viewportSize: xlarge
   jira:issuePanel:
     - key: gommage-replay-panel
       resource: gommage-replay

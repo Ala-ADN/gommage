@@ -42,9 +42,11 @@ function stepLabel(step) {
 }
 
 function App() {
+  const [ticketScope, setTicketScope] = useState("");
   const [status, setStatus] = useState("Loading Jira context");
   const [error, setError] = useState("");
   const [issueContext, setIssueContext] = useState(null);
+  const [activeRunTicket, setActiveRunTicket] = useState(null);
   const [runs, setRuns] = useState([]);
   const [record, setRecord] = useState(null);
   const [replay, setReplay] = useState(null);
@@ -58,6 +60,14 @@ function App() {
     () => record?.steps.find((step) => step.step_id === selectedStepId),
     [record, selectedStepId],
   );
+  const isIssueContext = Boolean(issueContext?.issueKey);
+  const actionTargetIssue = issueContext?.issueKey || activeRunTicket || null;
+  const actionTargetProject =
+    issueContext?.projectKey ||
+    (activeRunTicket ? activeRunTicket.split("-").slice(0, -1).join("-") : null);
+  const boardLabel = issueContext?.boardId
+    ? `${issueContext.boardType ? `${issueContext.boardType} board` : "Board"} ${issueContext.boardId}`
+    : "Jira dashboard";
 
   async function guarded(action) {
     setError("");
@@ -69,15 +79,19 @@ function App() {
     }
   }
 
-  async function loadRuns(contextOverride = issueContext) {
-    if (!contextOverride?.issueKey) {
-      setStatus("Jira issue context is not available yet");
+  async function loadRuns(contextOverride = issueContext, ticketId) {
+    const scopeIssueKey = ticketId || contextOverride?.issueKey;
+    if (scopeIssueKey) {
+      setStatus(`Loading traces for ${scopeIssueKey}`);
+      const data = await invoke("listRuns", { issueKey: scopeIssueKey });
+      setRuns(data.runs || []);
+      setStatus(`Loaded traces for ${scopeIssueKey}`);
       return;
     }
-    setStatus(`Loading traces for ${contextOverride.issueKey}`);
-    const data = await invoke("listRuns", { issueKey: contextOverride.issueKey });
+    setStatus(`Loading traces for ${boardLabel}`);
+    const data = await invoke("listRuns", {});
     setRuns(data.runs || []);
-    setStatus(`Loaded traces for ${contextOverride.issueKey}`);
+    setStatus(`Loaded traces for ${boardLabel}`);
   }
 
   async function recordRun() {
@@ -100,6 +114,8 @@ function App() {
   async function loadRun(runId) {
     setStatus(`Loading ${runId}`);
     const data = await invoke("getRun", { runId });
+    const runTicket = data.summary?.ticket_id || data.record?.ticket_id || null;
+    setActiveRunTicket(runTicket);
     setRecord(data.record);
     setReplay(null);
     setMetrics(null);
@@ -122,19 +138,19 @@ function App() {
 
   async function createFixIssue() {
     if (!record) return;
-    if (!issueContext?.issueKey || !issueContext?.projectKey) {
-      setStatus("Jira issue context is incomplete");
-      setError("Cannot create a linked issue without Jira issue and project keys.");
+    if (!actionTargetIssue || !actionTargetProject) {
+      setStatus("Board context lacks issue target");
+      setError("Open the trace for a specific issue and use Create linked fix issue from that issue context.");
       return;
     }
     setStatus("Creating linked Jira issue");
     const data = await invoke("createFixIssue", {
-      issueKey: issueContext.issueKey,
-      projectKey: issueContext.projectKey,
+      issueKey: actionTargetIssue,
+      projectKey: actionTargetProject,
       runId: record.run_id,
       edits: Array.from(edits.values()),
       replayMetrics: metrics,
-      summary: fixSummary || `Fix agent prompt for ${issueContext.issueKey}`,
+      summary: fixSummary || `Fix agent prompt for ${actionTargetIssue}`,
     });
     setStatus(`Created ${data.fixIssue.key}`);
   }
@@ -181,8 +197,13 @@ function App() {
           context.extension?.project?.key ||
           context.extension?.projectKey ||
           context.extension?.platformContext?.projectKey,
+        board:
+          context.extension?.board,
+        action:
+          context.extension?.action,
       });
       setIssueContext(data);
+      setActiveRunTicket(data?.issueKey || null);
       await loadRuns(data);
     });
   }, []);
@@ -197,12 +218,33 @@ function App() {
       <header className="topbar">
         <div>
           <h1>Gommage Replay</h1>
-          <p>{issueContext?.issueKey || "Jira issue panel"}</p>
+          <p>{issueContext?.issueKey || boardLabel}</p>
         </div>
         <div className="actions">
-          <button className="primary" disabled={!issueContext?.issueKey} onClick={() => guarded(recordRun)}>
+          <button className="primary" disabled={!isIssueContext} onClick={() => guarded(recordRun)}>
             Record current issue
           </button>
+          {!isIssueContext ? (
+            <>
+              <input
+                value={ticketScope}
+                placeholder="Filter by ticket (optional, e.g. PROJ-42)"
+                onChange={(event) => setTicketScope(event.target.value)}
+              />
+              <button
+                onClick={() =>
+                  guarded(() =>
+                    loadRuns(
+                      issueContext,
+                      ticketScope.trim() ? ticketScope.trim().toUpperCase() : null,
+                    ),
+                  )
+                }
+              >
+                Apply scope
+              </button>
+            </>
+          ) : null}
           <button disabled={!record} onClick={() => guarded(() => replayRun())}>
             Replay in Debug Mode
           </button>
@@ -228,7 +270,11 @@ function App() {
 
       <section className="workspace">
         <aside className="panel">
-          <PanelHeader title="Attached traces" action={() => guarded(() => loadRuns())} actionLabel="Refresh" />
+          <PanelHeader
+            title={isIssueContext ? "Traces for issue" : "All traces"}
+            action={() => guarded(() => loadRuns())}
+            actionLabel="Refresh"
+          />
           <div className="list">
             {runs.length ? (
               runs.map((run) => (
@@ -238,11 +284,14 @@ function App() {
                   onClick={() => guarded(() => loadRun(run.run_id))}
                 >
                   <strong>{run.run_id}</strong>
-                  <span>{run.steps} steps · {run.side_effecting_tools} side effects</span>
+                  <span>{run.ticket_id || "No ticket id"}</span>
+                  <span>
+                    {run.steps} steps · {run.side_effecting_tools} side effects
+                  </span>
                 </button>
               ))
             ) : (
-              <p className="empty">No traces attached to this issue yet.</p>
+              <p className="empty">{isIssueContext ? "No traces attached to this issue yet." : "No traces available yet."}</p>
             )}
           </div>
         </aside>
@@ -290,7 +339,7 @@ function App() {
               <input
                 id="fix-summary"
                 value={fixSummary}
-                placeholder={`Fix agent prompt for ${issueContext?.issueKey || "this issue"}`}
+                placeholder={`Fix agent prompt for ${actionTargetIssue || "this issue"}`}
                 onChange={(event) => setFixSummary(event.target.value)}
               />
             </div>

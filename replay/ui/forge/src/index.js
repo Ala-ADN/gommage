@@ -31,6 +31,7 @@ async function backendFetch(path, options = {}) {
 function issueKeyFromRequest(payload = {}, context = {}) {
   return (
     payload.issueKey ||
+    payload.ticketId ||
     context.extension?.issue?.key ||
     context.extension?.issueKey ||
     context.extension?.platformContext?.issueKey ||
@@ -41,11 +42,30 @@ function issueKeyFromRequest(payload = {}, context = {}) {
 function projectKeyFromRequest(payload = {}, context = {}, issueKey) {
   return (
     payload.projectKey ||
+    payload.boardProjectKey ||
     context.extension?.project?.key ||
     context.extension?.projectKey ||
     context.extension?.platformContext?.projectKey ||
     issueKey?.split("-").slice(0, -1).join("-")
   );
+}
+
+function boardFromRequest(payload = {}, context = {}) {
+  return payload.board || context.extension?.board || null;
+}
+
+function issueContextFromRequest(payload = {}, context = {}) {
+  const issueKey = issueKeyFromRequest(payload, context);
+  const projectKey = projectKeyFromRequest(payload, context, issueKey);
+  const board = boardFromRequest(payload, context);
+  return {
+    issueKey,
+    projectKey,
+    boardId: board?.id || null,
+    boardType: board?.type || null,
+    action: context.extension?.action || payload.action || null,
+    location: context.extension?.location || null,
+  };
 }
 
 function adfDoc(paragraphs) {
@@ -244,15 +264,13 @@ async function createLinkedFixIssue({ issueKey, projectKey, record, replayMetric
 }
 
 resolver.define("getIssueContext", ({ payload, context }) => {
-  const issueKey = issueKeyFromRequest(payload, context);
-  const projectKey = projectKeyFromRequest(payload, context, issueKey);
-  return { issueKey, projectKey, context: context.extension || {} };
+  return issueContextFromRequest(payload, context);
 });
 
 resolver.define("listRuns", async ({ payload, context }) => {
   const issueKey = issueKeyFromRequest(payload, context);
   if (!issueKey) {
-    throw new Error("Could not determine Jira issue key from Forge context.");
+    return backendFetch("/api/runs");
   }
   return backendFetch(`/api/runs?ticket_id=${encodeURIComponent(issueKey)}`);
 });
