@@ -12,3 +12,5 @@ wheels/
 # Local demo/runtime artifacts
 .gommage/
 .pytest_cache/
+.jira.env
+.env

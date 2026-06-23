@@ -70,7 +70,10 @@ function App() {
   }
 
   async function loadRuns(contextOverride = issueContext) {
-    if (!contextOverride?.issueKey) return;
+    if (!contextOverride?.issueKey) {
+      setStatus("Jira issue context is not available yet");
+      return;
+    }
     setStatus(`Loading traces for ${contextOverride.issueKey}`);
     const data = await invoke("listRuns", { issueKey: contextOverride.issueKey });
     setRuns(data.runs || []);
@@ -78,6 +81,11 @@ function App() {
   }
 
   async function recordRun() {
+    if (!issueContext?.issueKey) {
+      setStatus("Jira issue context is not available yet");
+      setError("Open Gommage Replay from a full Jira issue page and refresh.");
+      return;
+    }
     setStatus(`Recording ${issueContext.issueKey}`);
     const data = await invoke("recordRun", { issueKey: issueContext.issueKey });
     setRecord(data.record);
@@ -114,6 +122,11 @@ function App() {
 
   async function createFixIssue() {
     if (!record) return;
+    if (!issueContext?.issueKey || !issueContext?.projectKey) {
+      setStatus("Jira issue context is incomplete");
+      setError("Cannot create a linked issue without Jira issue and project keys.");
+      return;
+    }
     setStatus("Creating linked Jira issue");
     const data = await invoke("createFixIssue", {
       issueKey: issueContext.issueKey,
@@ -187,7 +200,7 @@ function App() {
           <p>{issueContext?.issueKey || "Jira issue panel"}</p>
         </div>
         <div className="actions">
-          <button className="primary" onClick={() => guarded(recordRun)}>
+          <button className="primary" disabled={!issueContext?.issueKey} onClick={() => guarded(recordRun)}>
             Record current issue
           </button>
           <button disabled={!record} onClick={() => guarded(() => replayRun())}>

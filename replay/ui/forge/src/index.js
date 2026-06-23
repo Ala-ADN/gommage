@@ -1,4 +1,4 @@
-const Resolver = require("@forge/resolver");
+const Resolver = require("@forge/resolver").default;
 const api = require("@forge/api");
 const { route } = require("@forge/api");
 
@@ -28,7 +28,7 @@ async function backendFetch(path, options = {}) {
   return body;
 }
 
-function issueKeyFromRequest(payload, context) {
+function issueKeyFromRequest(payload = {}, context = {}) {
   return (
     payload.issueKey ||
     context.extension?.issue?.key ||
@@ -38,7 +38,7 @@ function issueKeyFromRequest(payload, context) {
   );
 }
 
-function projectKeyFromRequest(payload, context, issueKey) {
+function projectKeyFromRequest(payload = {}, context = {}, issueKey) {
   return (
     payload.projectKey ||
     context.extension?.project?.key ||
@@ -59,6 +59,61 @@ function adfDoc(paragraphs) {
   };
 }
 
+function adfToPlainText(node) {
+  if (!node) {
+    return "";
+  }
+  if (typeof node === "string") {
+    return node;
+  }
+  if (Array.isArray(node)) {
+    return node.map(adfToPlainText).filter(Boolean).join("\n");
+  }
+  const ownText = node.text || "";
+  const childText = node.content ? adfToPlainText(node.content) : "";
+  return [ownText, childText].filter(Boolean).join(node.type === "paragraph" ? "\n" : "");
+}
+
+function displayUser(user) {
+  if (!user) {
+    return "";
+  }
+  return user.emailAddress || user.displayName || user.accountId || "";
+}
+
+async function fetchIssueDetails(issueKey) {
+  const response = await api.asApp().requestJira(
+    route`/rest/api/3/issue/${issueKey}?fields=summary,description,priority,reporter,assignee,labels,status,issuetype`,
+    {
+      method: "GET",
+      headers: { "Accept": "application/json" },
+    },
+  );
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Failed to read Jira issue ${issueKey}: ${response.status} ${text}`);
+  }
+  const issue = await response.json();
+  const fields = issue.fields || {};
+  const reporter = displayUser(fields.reporter);
+  const assignee = displayUser(fields.assignee);
+  return {
+    ticket_id: issue.key || issueKey,
+    key: issue.key || issueKey,
+    id: issue.id,
+    summary: fields.summary || "Untitled Jira issue",
+    description: adfToPlainText(fields.description),
+    priority: fields.priority?.name || "medium",
+    reporter,
+    assignee,
+    owner: assignee || reporter || "support-team@example.com",
+    labels: fields.labels || [],
+    status: fields.status?.name,
+    issue_type: fields.issuetype?.name,
+    source: "jira",
+  };
+}
+
 function summarizeTrace(record, replayMetrics) {
   const sideEffecting = record.steps
     .filter((step) => step.tool?.side_effecting)
@@ -73,6 +128,26 @@ function summarizeTrace(record, replayMetrics) {
       ? `Replay: RFS=${replayMetrics.replay_fidelity}, MRR=${replayMetrics.mock_recall}, blocked=${replayMetrics.side_effects_blocked}`
       : "Replay: not run yet",
   ];
+}
+
+function fallbackFixBrief(record, replayMetrics, summary) {
+  return {
+    summary: summary || `Fix agent prompt for ${record.jira_ticket_id}`,
+    description_paragraphs: [
+      "Created from Gommage Replay.",
+      ...summarizeTrace(record, replayMetrics),
+      "Recommended change: require explicit ticket and database evidence before any side-effecting notification tool call.",
+    ],
+    comment_paragraphs: summarizeTrace(record, replayMetrics),
+    source: "forge-fallback",
+  };
+}
+
+function cleanParagraphs(value, fallback) {
+  const paragraphs = Array.isArray(value)
+    ? value.map((item) => String(item || "").trim()).filter(Boolean)
+    : [];
+  return paragraphs.length ? paragraphs : fallback;
 }
 
 async function attachTrace(issueKey, record) {
@@ -115,7 +190,16 @@ async function addIssueComment(issueKey, paragraphs) {
   return response.json();
 }
 
-async function createLinkedFixIssue({ issueKey, projectKey, record, replayMetrics, summary, issueType }) {
+async function createLinkedFixIssue({ issueKey, projectKey, record, replayMetrics, summary, issueType, brief }) {
+  const fixBrief = brief || fallbackFixBrief(record, replayMetrics, summary);
+  const descriptionParagraphs = cleanParagraphs(
+    fixBrief.description_paragraphs,
+    fallbackFixBrief(record, replayMetrics, summary).description_paragraphs,
+  );
+  const commentParagraphs = cleanParagraphs(
+    fixBrief.comment_paragraphs,
+    fallbackFixBrief(record, replayMetrics, summary).comment_paragraphs,
+  );
   const response = await api.asApp().requestJira(route`/rest/api/3/issue`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -123,11 +207,8 @@ async function createLinkedFixIssue({ issueKey, projectKey, record, replayMetric
       fields: {
         project: { key: projectKey },
         issuetype: { name: issueType || "Task" },
-        summary: summary || `Fix agent prompt for ${issueKey}`,
-        description: adfDoc([
-          "Created from Gommage Replay.",
-          ...summarizeTrace(record, replayMetrics),
-        ]),
+        summary: fixBrief.summary || summary || `Fix agent prompt for ${issueKey}`,
+        description: adfDoc(descriptionParagraphs),
       },
     }),
   });
@@ -148,7 +229,10 @@ async function createLinkedFixIssue({ issueKey, projectKey, record, replayMetric
   });
   const linkWarning = linkResponse.ok ? null : await linkResponse.text();
 
-  await addIssueComment(created.key, summarizeTrace(record, replayMetrics));
+  await addIssueComment(created.key, [
+    ...commentParagraphs,
+    `Brief source: ${fixBrief.source || "unknown"}`,
+  ]);
   await attachTrace(created.key, record);
 
   return {
@@ -162,19 +246,26 @@ async function createLinkedFixIssue({ issueKey, projectKey, record, replayMetric
 resolver.define("getIssueContext", ({ payload, context }) => {
   const issueKey = issueKeyFromRequest(payload, context);
   const projectKey = projectKeyFromRequest(payload, context, issueKey);
-  return { issueKey, projectKey, context: context.extension };
+  return { issueKey, projectKey, context: context.extension || {} };
 });
 
 resolver.define("listRuns", async ({ payload, context }) => {
   const issueKey = issueKeyFromRequest(payload, context);
+  if (!issueKey) {
+    throw new Error("Could not determine Jira issue key from Forge context.");
+  }
   return backendFetch(`/api/runs?ticket_id=${encodeURIComponent(issueKey)}`);
 });
 
 resolver.define("recordRun", async ({ payload, context }) => {
   const issueKey = issueKeyFromRequest(payload, context);
+  if (!issueKey) {
+    throw new Error("Could not determine Jira issue key from Forge context.");
+  }
+  const issue = await fetchIssueDetails(issueKey);
   const data = await backendFetch("/api/record", {
     method: "POST",
-    body: JSON.stringify({ ticket_id: issueKey }),
+    body: JSON.stringify({ ticket_id: issueKey, issue }),
   });
   const warnings = [];
   try {
@@ -206,6 +297,9 @@ resolver.define("replayRun", async ({ payload }) => {
 resolver.define("createFixIssue", async ({ payload, context }) => {
   const issueKey = issueKeyFromRequest(payload, context);
   const projectKey = projectKeyFromRequest(payload, context, issueKey);
+  if (!issueKey || !projectKey) {
+    throw new Error("Could not determine Jira issue/project key from Forge context.");
+  }
   const run = await backendFetch(`/api/runs/${encodeURIComponent(payload.runId)}`);
   const replay = payload.replayMetrics
     ? { metrics: payload.replayMetrics }
@@ -213,6 +307,21 @@ resolver.define("createFixIssue", async ({ payload, context }) => {
         method: "POST",
         body: JSON.stringify({ run_id: payload.runId, edits: payload.edits || [] }),
       });
+  let brief = fallbackFixBrief(run.record, replay.metrics, payload.summary);
+  try {
+    const briefResponse = await backendFetch("/api/fix-brief", {
+      method: "POST",
+      body: JSON.stringify({
+        run_id: payload.runId,
+        edits: payload.edits || [],
+        replay_metrics: replay.metrics,
+        summary: payload.summary,
+      }),
+    });
+    brief = briefResponse.brief || brief;
+  } catch (error) {
+    brief.warning = error.message;
+  }
   const fixIssue = await createLinkedFixIssue({
     issueKey,
     projectKey,
@@ -220,6 +329,7 @@ resolver.define("createFixIssue", async ({ payload, context }) => {
     replayMetrics: replay.metrics,
     summary: payload.summary,
     issueType: payload.issueType,
+    brief,
   });
   return { fixIssue };
 });

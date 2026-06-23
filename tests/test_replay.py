@@ -15,6 +15,33 @@ def test_replay_blocks_recorded_side_effects() -> None:
     assert mock_recall_rate(record, result) == 1.0
 
 
+def test_jira_triage_uses_real_issue_payload() -> None:
+    record = run_jira_triage(
+        "REAL-1",
+        issue={
+            "summary": "Production billing export sends duplicate emails",
+            "description": "Customer reports two emails for every export.",
+            "priority": "Highest",
+            "reporter": "ops@example.com",
+            "assignee": "billing-owner@example.com",
+            "owner": "billing-owner@example.com",
+            "labels": ["billing", "sensitive"],
+            "status": "To Do",
+            "issue_type": "Task",
+        },
+    )
+
+    classify_step = next(step for step in record.steps if step.intent == "Classify ticket")
+
+    assert record.metadata["issue"]["summary"] == "Production billing export sends duplicate emails"
+    assert classify_step.llm is not None
+    assert "Production billing export sends duplicate emails" in classify_step.llm.prompt
+    assert "Customer reports two emails" in classify_step.llm.prompt
+    assert classify_step.context["labels"] == ["billing", "sensitive"]
+    assert record.metadata["llm_backend"] == "deterministic"
+    assert record.metadata["llm_model"] == "deterministic-demo"
+
+
 def test_step_editor_creates_divergence_without_mutating_original() -> None:
     record = run_jira_triage("DEMO-101")
     llm_step = next(step for step in record.steps if step.llm is not None)

@@ -1,0 +1,53 @@
+{
+  "fields": {
+    "project": {
+      "key": "SCRUM"
+    },
+    "summary": "Investigate duplicate billing export notification sent by agent",
+    "issuetype": {
+      "name": "Task"
+    },
+    "description": {
+      "type": "doc",
+      "version": 1,
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "A customer reported receiving duplicate billing export notification emails after a recent account migration."
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "Context: The export job completed once, but two notification emails were sent. The customer account was recently migrated. The issue may involve agent decision logic around retry handling or notification state. This is sensitive because the notification can expose billing workflow details."
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "Expected behavior: The agent should inspect export status and notification history before emailing. The agent must not send a customer or owner notification during debug replay. Replay should mock the email tool call and preserve the original recorded response."
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "Acceptance criteria: Record the agent trajectory from this Jira issue. Confirm the trace includes prompts, DB query, and email tool call. Replay in debug mode without sending a second email. Rewrite the notification-planning prompt to require evidence before side effects. Create a linked fix issue with the trace attached as evidence."
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

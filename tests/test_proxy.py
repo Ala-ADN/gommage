@@ -22,6 +22,27 @@ def test_proxies_record_llm_and_tool_steps() -> None:
     assert [step.kind for step in record.steps] == ["llm", "tool"]
 
 
+def test_llm_proxy_records_runtime_metadata() -> None:
+    record = AgentExecutionRecord(run_id="run-1", jira_ticket_id="DEMO-1")
+
+    class RuntimeMetadataLLM:
+        model = "test-model"
+        last_metadata = {}
+
+        def __call__(self, prompt: str, **_: object) -> str:
+            self.last_metadata = {"provider": "test", "response_id": "resp-1"}
+            return f"handled {prompt}"
+
+    llm = LLMProxy(record, RuntimeMetadataLLM())
+
+    llm.complete("ticket", intent="triage")
+
+    assert record.steps[0].llm is not None
+    assert record.steps[0].llm.model == "test-model"
+    assert record.steps[0].llm.metadata["provider"] == "test"
+    assert record.steps[0].llm.metadata["response_id"] == "resp-1"
+
+
 def test_mock_registry_detects_side_effecting_tools_and_mutating_sql() -> None:
     registry = MockRegistry()
 

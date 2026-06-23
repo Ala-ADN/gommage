@@ -17,6 +17,7 @@ from recorder.serializer.aer_schema import AgentExecutionRecord
 from recorder.storage.local_store import LocalTraceStore
 from replay.engine.replay_runner import ReplayRunner
 from replay.engine.step_editor import StepEdit
+from replay.ui.fix_issue_brief import generate_fix_issue_brief
 
 
 STATIC_ROOT = Path(__file__).with_name("web")
@@ -83,22 +84,18 @@ class GommageUIHandler(BaseHTTPRequestHandler):
         payload = self._read_json()
         if parsed.path == "/api/record":
             ticket_id = str(payload.get("ticket_id") or "DEMO-101")
-            record = run_jira_triage(ticket_id)
+            record = run_jira_triage(
+                ticket_id,
+                issue=payload.get("issue"),
+                llm_backend=str(payload.get("llm_backend") or "auto"),
+            )
             self.server.store.save(record)
             self._send_json({"record": record.to_dict(), "summary": _summary(record)})
             return
         if parsed.path == "/api/replay":
             run_id = str(payload["run_id"])
             record = self.server.store.load(run_id)
-            edits = [
-                StepEdit(
-                    step_id=int(item["step_id"]),
-                    prompt=item.get("prompt"),
-                    tool_result=item.get("tool_result"),
-                    note=item.get("note", ""),
-                )
-                for item in payload.get("edits", [])
-            ]
+            edits = _step_edits_from_payload(payload)
             result = ReplayRunner(record).replay(edits)
             self._send_json(
                 {
@@ -111,18 +108,54 @@ class GommageUIHandler(BaseHTTPRequestHandler):
                 }
             )
             return
+        if parsed.path == "/api/fix-brief":
+            run_id = str(payload["run_id"])
+            record = self.server.store.load(run_id)
+            edits = _step_edits_from_payload(payload)
+            replay_metrics = payload.get("replay_metrics")
+            if replay_metrics is None:
+                result = ReplayRunner(record).replay(edits)
+                replay_metrics = {
+                    "replay_fidelity": replay_fidelity_score(result),
+                    "mock_recall": mock_recall_rate(record, result),
+                    "side_effects_blocked": result.side_effects_blocked,
+                }
+            brief = generate_fix_issue_brief(
+                record,
+                replay_metrics=replay_metrics,
+                edits=payload.get("edits", []),
+                summary_hint=payload.get("summary"),
+            )
+            self._send_json({"brief": brief})
+            return
         if parsed.path == "/api/fix-issue":
             run_id = str(payload["run_id"])
             record = self.server.store.load(run_id)
             fix_root = Path(".gommage/fix_issues")
             fix_root.mkdir(parents=True, exist_ok=True)
             fix_id = f"LOCAL-FIX-{len(list(fix_root.glob('*.json'))) + 1}"
+            edits = _step_edits_from_payload(payload)
+            result = ReplayRunner(record).replay(edits)
+            replay_metrics = payload.get("replay_metrics") or {
+                "replay_fidelity": replay_fidelity_score(result),
+                "mock_recall": mock_recall_rate(record, result),
+                "side_effects_blocked": result.side_effects_blocked,
+            }
+            brief = generate_fix_issue_brief(
+                record,
+                replay_metrics=replay_metrics,
+                edits=payload.get("edits", []),
+                summary_hint=payload.get("summary"),
+            )
             fix_payload = {
                 "fix_id": fix_id,
                 "linked_ticket": record.jira_ticket_id,
                 "run_id": run_id,
-                "summary": payload.get("summary")
-                or f"Fix prompt regression found in {record.jira_ticket_id}",
+                "summary": brief["summary"],
+                "description_paragraphs": brief["description_paragraphs"],
+                "comment_paragraphs": brief["comment_paragraphs"],
+                "recommended_prompt_change": brief["recommended_prompt_change"],
+                "brief_source": brief["source"],
                 "trace_hash": record.trace_hash(),
                 "evidence": {
                     "steps": len(record.steps),
@@ -186,6 +219,18 @@ class GommageUIHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+
+
+def _step_edits_from_payload(payload: dict[str, Any]) -> list[StepEdit]:
+    return [
+        StepEdit(
+            step_id=int(item["step_id"]),
+            prompt=item.get("prompt"),
+            tool_result=item.get("tool_result"),
+            note=item.get("note", ""),
+        )
+        for item in payload.get("edits", [])
+    ]
 
 
 def run_ui_server(

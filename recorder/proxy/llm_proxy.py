@@ -22,7 +22,7 @@ class LLMProxy:
     ) -> None:
         self.record = record
         self.llm = llm
-        self.model = model
+        self.model = getattr(llm, "model", model)
         self.snapshots = StepSnapshotBuilder(record)
 
     def complete(
@@ -44,16 +44,20 @@ class LLMProxy:
         )
         latency_ms = int((perf_counter() - started) * 1000)
         token_count = len(prompt.split()) + len(str(response).split())
+        combined_metadata = dict(metadata or {})
+        runtime_metadata = getattr(self.llm, "last_metadata", None)
+        if isinstance(runtime_metadata, dict):
+            combined_metadata.update(runtime_metadata)
         self.snapshots.add_llm_step(
             prompt=prompt,
             response=str(response),
             system_message=system_message,
-            model=self.model,
+            model=getattr(self.llm, "model", self.model),
             intent=intent,
             context=context or {},
             latency_ms=latency_ms,
             token_count=token_count,
-            metadata=metadata,
+            metadata=combined_metadata,
         )
         return str(response)
 

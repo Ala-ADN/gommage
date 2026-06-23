@@ -33,6 +33,8 @@
   - Jira trace attachment flow
   - Linked fix issue creation flow
 - Configured Forge backend integration through `GOMMAGE_BACKEND_URL`.
+- Added optional OpenAI-backed recording and fix-issue brief generation. UI-triggered records use `GOMMAGE_LLM_BACKEND=auto`, so the backend uses OpenAI when `OPENAI_API_KEY` is present and falls back locally otherwise.
+- Linked Jira fix issues can now use a backend-generated brief with better summary, description, replay evidence, and recommended prompt/control changes.
 - Added ngrok-compatible egress permissions for local demos.
 - Fixed Forge Custom UI asset loading by switching Vite to relative asset paths.
 - Added tests for schema round-trip, proxies, side-effect detection, replay, editing, and email outbox behavior.
