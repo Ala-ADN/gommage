@@ -1,4 +1,4 @@
-https://github.com/user-attachments/assets/89ceab7a-58a2-42c6-ae08-e064b04ffce1
+<img width="1000" height="360" alt="Image" src="https://github.com/user-attachments/assets/d84c51d6-6665-4840-88e3-f4bea79759c8" loop="infinite" />
 
 > _An enterprise-grade observability and debugging infrastructure layer that captures the exact state, tool calls, and trajectories of AI agents._
 
