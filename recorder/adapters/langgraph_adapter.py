@@ -5,7 +5,14 @@ from __future__ import annotations
 import time
 from typing import Any, Callable, Dict, Optional
 
-from pydantic import BaseModel
+try:
+    from pydantic import BaseModel
+except ImportError:  # pragma: no cover - exercised only when pydantic is unavailable
+    class BaseModel:
+        """Fallback for environments without pydantic installed."""
+
+        def model_dump(self) -> Dict[str, Any]:
+            return dict(self.__dict__)
 from recorder.serializer.aer_schema import AERStep, AgentExecutionRecord
 from recorder.serializer.step_snapshot import StepSnapshotBuilder
 

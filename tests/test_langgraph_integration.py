@@ -5,6 +5,8 @@ from __future__ import annotations
 from typing import Dict, Any, TypedDict
 import pytest
 
+pytest.importorskip("langgraph")
+
 from langgraph.graph import StateGraph, START, END
 
 from recorder.adapters.langgraph_adapter import LangGraphNodeInterceptor

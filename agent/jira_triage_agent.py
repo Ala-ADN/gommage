@@ -10,6 +10,7 @@ from agent.tools.email_tool import EmailTool
 from agent.tools.jira_tools import JiraToolset
 from recorder.proxy.llm_proxy import LLMProxy, deterministic_llm
 from recorder.proxy.openai_client import OpenAICompletion
+from recorder.adapters.function_adapter import gommage_tool
 from recorder.proxy.tool_proxy import ToolProxy
 from recorder.serializer.aer_schema import AgentExecutionRecord
 

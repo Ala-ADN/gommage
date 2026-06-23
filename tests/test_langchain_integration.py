@@ -4,6 +4,10 @@ from __future__ import annotations
 
 from typing import Type
 import pytest
+
+pytest.importorskip("pydantic")
+pytest.importorskip("langchain_core")
+
 from pydantic import BaseModel, Field
 
 from langchain_core.outputs import LLMResult, RunInfo
