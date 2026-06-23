@@ -1,4 +1,4 @@
-"""Runnable demo Jira triage agent wrapped by Gommage proxies."""
+"""Runnable demo Jira triage agent wrapped by Gommage adapters."""
 
 from __future__ import annotations
 
@@ -70,12 +70,14 @@ def run_jira_triage(
     db = DatabaseTool()
     email = EmailTool()
 
-    ticket = tools.call(
-        "jira.get_ticket",
-        jira.get_ticket,
-        {"ticket_id": ticket_id},
-        intent="Load ticket context",
-    )
+    get_ticket_tool = gommage_tool(name="jira.get_ticket", record=record)(jira.get_ticket)
+    db_query_tool = gommage_tool(name="db.query", record=record)(db.query)
+    email_send_tool = gommage_tool(name="email.send", record=record)(email.send_email)
+
+    ticket = get_ticket_tool(ticket_id=ticket_id)
+    if self_steps := record.steps:
+        self_steps[-1].intent = "Load ticket context"
+
     llm.complete(
         f"Triage this Jira ticket: {ticket['summary']}\n\nDescription: {ticket.get('description', '')}",
         system_message="You are a careful support triage agent.",
@@ -89,28 +91,26 @@ def run_jira_triage(
             "assignee": ticket.get("assignee"),
         },
     )
-    rows = tools.call(
-        "db.query",
-        db.query,
-        {"sql": f"SELECT * FROM exports WHERE ticket_id = '{ticket_id}'"},
-        intent="Gather database evidence",
-    )
+    
+    rows = db_query_tool(sql=f"SELECT * FROM exports WHERE ticket_id = '{ticket_id}'")
+    if self_steps := record.steps:
+        self_steps[-1].intent = "Gather database evidence"
+
     llm.complete(
         "Decide whether the ticket owner needs an email.",
         system_message="Use evidence before taking action.",
         intent="Plan owner notification",
-        context={"owner": ticket["owner"], "db_rows": rows},
+        context={"owner": ticket.get("owner"), "db_rows": rows},
     )
-    tools.call(
-        "email.send",
-        email.send_email,
-        {
-            "to": ticket["owner"],
-            "subject": f"Follow-up needed for {ticket_id}",
-            "body": "The export failure appears related to migration state. Please review.",
-        },
-        intent="Notify owner",
+    
+    email_send_tool(
+        to=ticket.get("owner", ""),
+        subject=f"Follow-up needed for {ticket_id}",
+        body="The export failure appears related to migration state. Please review.",
     )
+    if self_steps := record.steps:
+        self_steps[-1].intent = "Notify owner"
+
     record.complete()
     return record
 

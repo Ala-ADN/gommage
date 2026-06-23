@@ -165,34 +165,70 @@ Verification:
 
 ## Phase 5: Real Agent/Tool Integration
 
-Goal: Move from deterministic demo doubles to realistic agent instrumentation.
+Goal: Move from deterministic demo doubles to realistic agent instrumentation by first implementing **LangChain** integration, and then upgrading it to **LangGraph** once the baseline is verified.
 
-Tasks:
+### 1. Proposed Architecture & Directory Structure
 
-1. Add adapters for common tool call shapes:
-   - function calls
-   - LangChain tools
-   - LangGraph nodes
-   - MCP tools
-2. Add an LLM adapter interface:
-   - prompt input capture
-   - response capture
-   - model name
-   - token usage
-   - latency
-3. Add a tool adapter interface:
-   - tool name
-   - parameters
-   - result
-   - side-effect classification
-   - error capture
-4. Add replay adapters that return recorded payloads instead of calling live APIs.
-5. Add documentation for wrapping a real agent.
+To support real frameworks without bloating core schema logic, we introduce a dedicated adapters package:
 
-Verification:
+*   `recorder/adapters/base.py`: Declares abstract base classes and interfaces for LLM and Tool adapters.
+*   `recorder/adapters/langchain_adapter.py`: Implements LangChain-specific wrappers for LLM (`BaseChatModel`), Tools (`BaseTool`), and Callback handlers.
+*   `recorder/adapters/langgraph_adapter.py`: Extends telemetry to support LangGraph state transitions, utilizing the underlying LangChain callbacks.
+*   `recorder/adapters/replay_adapter.py`: Wraps tools/LLMs in "replay mode" using recorded payloads.
 
-- Run one realistic agent task with at least one LLM call and one tool call.
-- Replay produces identical tool outputs without executing the live tool.
+### 2. Interface Definitions & Implementation Tasks
+
+#### Task 5.1: Core Adapter Interfaces (`recorder/adapters/base.py`)
+Define clean abstractions that wrap live execution, capture telemetry, and populate the [AgentExecutionRecord](file:///home/ala-adn/code/gommage/recorder/serializer/aer_schema.py).
+
+*   **`BaseLLMAdapter`**:
+    *   `capture_input(prompt: str, system_message: str = "", context: dict = None)`
+    *   `capture_output(response: str, token_usage: dict = None, model_name: str = "")`
+    *   Methods to track latency and record the step via [StepSnapshotBuilder](file:///home/ala-adn/code/gommage/recorder/serializer/step_snapshot.py).
+*   **`BaseToolAdapter`**:
+    *   `execute(tool_name: str, parameters: dict, context: dict = None) -> Any`
+    *   Side-effect classification via [MockRegistry](file:///home/ala-adn/code/gommage/recorder/proxy/mock_registry.py).
+    *   Telemetry capture (latency, error capture, returned results).
+
+#### Task 5.2: LangChain Integration (Phase 5a)
+Implement the baseline adapters using standard LangChain callback hooks:
+*   **`LangChainLLMCallbackHandler` / `GommageChatModelWrapper`**:
+    *   Implement as a custom LangChain `BaseCallbackHandler` or model wrapper targeting `on_llm_start` and `on_llm_end`.
+    *   Extract prompt/messages, output content, latency, and token usage.
+*   **`GommageLangChainToolWrapper`**:
+    *   Inherits from LangChain's `BaseTool` or wraps an existing `BaseTool`.
+    *   Delegates call to `ToolProxy.call` in [tool_proxy.py](file:///home/ala-adn/code/gommage/recorder/proxy/tool_proxy.py) or performs equivalent tracking.
+
+#### Task 5.3: LangGraph Upgrade (Phase 5b)
+Once the LangChain baseline works, layer on LangGraph tracking:
+*   **`LangGraphNodeInterceptor`**:
+    *   Implement as a decorator or custom graph configuration to intercept LangGraph nodes.
+    *   Map the input state of the node and the resulting state update to the AER sequence, while using the underlying LangChain adapters for internal LLM/tool steps.
+
+#### Task 5.4: Generic Function & MCP Adapter Support
+*   Add a standard Python function/decorator adapter (`@gommage_tool`) to wrap arbitrary Python functions.
+*   Add a simple JSON-RPC schema handler for Model Context Protocol (MCP) tool shapes, converting `call_tool` request/response cycles into AER steps.
+
+#### Task 5.5: Replay Adapters (`recorder/adapters/replay_adapter.py`)
+Add replay adapters that allow replaying agent executions without executing live APIs or side-effecting code:
+*   **`ReplayChatModel`**: Implements LangChain's `BaseChatModel`. When invoked, reads the current step from the replay record and returns the recorded (or edited) response directly.
+*   **`ReplayTool`**: Implements LangChain's `BaseTool`. Returns the cached tool result (or mocked side-effect payload) matching the parameters.
+
+#### Task 5.6: Add "Wrapping a Real Agent" Documentation
+Create `docs/adapters_guide.md` with explicit Python examples showing:
+1. Initializing an [AgentExecutionRecord](file:///home/ala-adn/code/gommage/recorder/serializer/aer_schema.py).
+2. Wrapping a LangChain or LangGraph agent.
+3. Executing in Recording Mode vs Replay Mode.
+
+### 3. Verification
+
+We will verify end-to-end integration via two test scripts:
+1. **LangChain Verification (`tests/test_langchain_integration.py`)**:
+   - Construct a small LangChain agent using a mocked `ChatOpenAI` double and a side-effecting Tool.
+   - Assert AER trace matches expected schema, and replay successfully blocks side-effects.
+2. **LangGraph Verification (`tests/test_langgraph_integration.py`)**:
+   - Wrap a LangGraph `StateGraph` agent, running it through recording and replay paths.
+   - Verify state transition mapping and nested step capture are correct.
 
 ## Phase 6: UI Polish
 
