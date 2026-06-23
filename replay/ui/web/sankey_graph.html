@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Fused Traces Sankey Graph</title>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <script src="https://unpkg.com/d3-sankey@0.12.3/dist/d3-sankey.min.js"></script>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: #f8f9fa;
+      margin: 0;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    #sankey-container {
+      width: 900px;
+      height: 600px;
+      background: white;
+      border: 1px solid #dee2e6;
+      border-radius: 8px;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+      position: relative;
+    }
+    .node rect {
+      cursor: pointer;
+      stroke: #343a40;
+      stroke-width: 1px;
+      transition: fill 0.2s;
+    }
+    .node text {
+      font-size: 12px;
+      font-weight: 500;
+      pointer-events: none;
+      text-shadow: 0 1px 0 #fff, 1px 0 0 #fff, 0 -1px 0 #fff, -1px 0 0 #fff;
+    }
+    .link {
+      fill: none;
+      stroke-opacity: 0.3;
+      transition: stroke-opacity 0.2s;
+    }
+    .link:hover {
+      stroke-opacity: 0.6;
+    }
+    .tooltip {
+      position: absolute;
+      text-align: left;
+      padding: 8px 12px;
+      font-size: 12px;
+      background: rgba(33, 37, 41, 0.95);
+      color: #fff;
+      border-radius: 4px;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.2s;
+      transform: translate(-50%, -100%);
+      margin-top: -10px;
+      white-space: pre-wrap;
+      z-index: 10;
+    }
+    .header-info {
+      text-align: center;
+      margin-bottom: 15px;
+    }
+    .loading {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 18px;
+      color: #6c757d;
+    }
+  </style>
+</head>
+<body>
+  <h2>Global Aggregate Flow (Fused Traces)</h2>
+  <div class="header-info">
+    <p>Hover over links to see transition volume. This graph is dynamically built from all available traces.</p>
+    <div id="stats">Loading traces...</div>
+  </div>
+  <div id="sankey-container">
+    <div id="loading-spinner" class="loading">Fetching and fusing traces...</div>
+    <div id="tooltip" class="tooltip"></div>
+  </div>
+
+  <script>
+    const margin = {top: 40, right: 100, bottom: 40, left: 40};
+    const width = 900 - margin.left - margin.right;
+    const height = 600 - margin.top - margin.bottom;
+
+    const svg = d3.select("#sankey-container").append("svg")
+      .attr("width", width + margin.left + margin.right)
+      .attr("height", height + margin.top + margin.bottom)
+      .append("g")
+      .attr("transform", `translate(${margin.left},${margin.top})`);
+
+    const color = d3.scaleOrdinal(d3.schemeCategory10);
+    const tooltip = d3.select("#tooltip");
+
+    async function loadSankey() {
+      try {
+        const runsRes = await fetch('/api/runs');
+        const runsData = await runsRes.json();
+        
+        let validRuns = runsData.runs.filter(r => !r.error);
+        if (validRuns.length === 0) {
+          document.getElementById('loading-spinner').innerText = 'No valid traces found.';
+          return;
+        }
+
+        let nodesMap = new Map();
+        let linksMap = new Map();
+        
+        nodesMap.set("START", {id: "START", label: "START", value: 0});
+        nodesMap.set("END", {id: "END", label: "END", value: 0});
+        
+        let tracesProcessed = 0;
+
+        for (const run of validRuns) {
+            const res = await fetch(`/api/runs/${run.run_id}`);
+            const data = await res.json();
+            const steps = data.record.steps;
+            
+            if (!steps || steps.length === 0) continue;
+            tracesProcessed++;
+            
+            let prev = "START";
+            nodesMap.get("START").value += 1;
+            
+            for (const step of steps) {
+                let curr = `other:${step.kind}`;
+                if (step.kind === 'tool' && step.tool) {
+                    const keys = Object.keys(step.tool.parameters || {}).sort().join(",");
+                    curr = `tool:${step.tool.tool_name}:${keys}`;
+                } else if (step.kind === 'llm') {
+                    curr = `llm:${(step.intent || '').toLowerCase().replace(/ /g, '_')}`;
+                }
+                
+                if (!nodesMap.has(curr)) {
+                    // Extract a readable label
+                    let label = curr.split(':')[1] || curr;
+                    if (step.kind === 'llm' && step.intent) label = step.intent;
+                    nodesMap.set(curr, {id: curr, label: label, value: 0});
+                }
+                nodesMap.get(curr).value += 1;
+                
+                const linkKey = `${prev}->${curr}`;
+                if (!linksMap.has(linkKey)) {
+                    linksMap.set(linkKey, {source: prev, target: curr, value: 0});
+                }
+                linksMap.get(linkKey).value += 1;
+                
+                prev = curr;
+            }
+            
+            nodesMap.get("END").value += 1;
+            const linkKey = `${prev}->END`;
+            if (!linksMap.has(linkKey)) {
+                linksMap.set(linkKey, {source: prev, target: "END", value: 0});
+            }
+            linksMap.get(linkKey).value += 1;
+        }
+        
+        document.getElementById('loading-spinner').style.display = 'none';
+        document.getElementById('stats').innerHTML = `<strong>${tracesProcessed} traces fused</strong> into ${nodesMap.size} unique behaviors.`;
+        
+        const nodes = Array.from(nodesMap.values());
+        const links = Array.from(linksMap.values());
+        
+        renderSankey(nodes, links);
+      } catch(err) {
+        document.getElementById('loading-spinner').innerText = 'Error loading traces: ' + err.message;
+      }
+    }
+
+    function renderSankey(nodesData, linksData) {
+      const sankey = d3.sankey()
+        .nodeId(d => d.id)
+        .nodeWidth(20)
+        .nodePadding(30)
+        .extent([[0, 0], [width, height]]);
+
+      const {nodes, links} = sankey({
+        nodes: nodesData.map(d => Object.assign({}, d)),
+        links: linksData.map(d => Object.assign({}, d))
+      });
+
+      // Links
+      svg.append("g")
+        .selectAll("path")
+        .data(links)
+        .join("path")
+        .attr("class", "link")
+        .attr("d", d3.sankeyLinkHorizontal())
+        .attr("stroke", d => color(d.source.id))
+        .attr("stroke-width", d => Math.max(1, d.width))
+        .on("mouseover", function(event, d) {
+          tooltip.style("opacity", 1)
+            .html(`<strong>${d.source.label} → ${d.target.label}</strong>\nFlow: ${d.value} traces`)
+            .style("left", (event.pageX) + "px")
+            .style("top", (event.pageY) + "px");
+        })
+        .on("mouseout", () => tooltip.style("opacity", 0));
+
+      // Nodes
+      const node = svg.append("g")
+        .selectAll("g")
+        .data(nodes)
+        .join("g")
+        .attr("class", "node")
+        .attr("transform", d => `translate(${d.x0},${d.y0})`);
+
+      node.append("rect")
+        .attr("height", d => d.y1 - d.y0)
+        .attr("width", sankey.nodeWidth())
+        .attr("fill", d => color(d.id))
+        .on("mouseover", function(event, d) {
+          tooltip.style("opacity", 1)
+            .html(`<strong>${d.label}</strong>\nTotal Flow: ${d.value}`)
+            .style("left", (event.pageX) + "px")
+            .style("top", (event.pageY) + "px");
+        })
+        .on("mouseout", () => tooltip.style("opacity", 0));
+
+      node.append("text")
+        .attr("x", -6)
+        .attr("y", d => (d.y1 - d.y0) / 2)
+        .attr("dy", "0.35em")
+        .attr("text-anchor", "end")
+        .text(d => d.label)
+        .filter(d => d.x0 < width / 2)
+        .attr("x", sankey.nodeWidth() + 6)
+        .attr("text-anchor", "start");
+    }
+
+    loadSankey();
+  </script>
+</body>
+</html>

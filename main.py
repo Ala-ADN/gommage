@@ -28,6 +28,12 @@ def main() -> None:
     ui_parser.add_argument("--port", default=8010, type=int)
     ui_parser.add_argument("--store", default=".gommage/traces")
 
+    ingest_parser = subparsers.add_parser("ingest-neo4j", help="ingest traces into neo4j")
+    ingest_parser.add_argument("--store", default=".gommage/traces")
+    ingest_parser.add_argument("--uri", default="neo4j://localhost:7687")
+    ingest_parser.add_argument("--user", default="neo4j")
+    ingest_parser.add_argument("--password", default="gommage_secret")
+
     args = parser.parse_args()
 
     if args.command == "record-demo":
@@ -57,6 +63,21 @@ def main() -> None:
 
     if args.command == "ui":
         run_ui_server(host=args.host, port=args.port, store_root=args.store)
+        return
+
+    if args.command == "ingest-neo4j":
+        from replay.engine.neo4j_ingester import Neo4jAERIngester
+        ingester = Neo4jAERIngester(uri=args.uri, user=args.user, password=args.password)
+        try:
+            store = LocalTraceStore(args.store)
+            traces = store.list_run_ids()
+            for run_id in traces:
+                record = store.load(run_id)
+                ingester.ingest_run(record)
+                ingester.ingest_aggregate(record)
+                print(f"Ingested run {run_id}")
+        finally:
+            ingester.close()
         return
 
     parser.print_help()

@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Trace State Machine Visualization</title>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: #f8f9fa;
+      margin: 0;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    .header-bar {
+      display: flex;
+      gap: 15px;
+      align-items: center;
+      margin-bottom: 15px;
+    }
+    select {
+      padding: 6px 10px;
+      border-radius: 4px;
+      border: 1px solid #ced4da;
+      font-size: 14px;
+    }
+    #graph-container {
+      width: 800px;
+      height: 600px;
+      background: white;
+      border: 1px solid #dee2e6;
+      border-radius: 8px;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+      position: relative;
+      overflow: hidden;
+    }
+    .node-circle {
+      stroke: #fff;
+      stroke-width: 2px;
+      cursor: pointer;
+      transition: filter 0.2s;
+    }
+    .node-circle:hover, .node-circle.active {
+      filter: drop-shadow(0 0 8px rgba(0, 123, 255, 0.8));
+      stroke: #0d6efd;
+      stroke-width: 3px;
+    }
+    .link {
+      fill: none;
+      stroke: #adb5bd;
+      stroke-width: 2px;
+      marker-end: url(#arrow);
+    }
+    .evidence-link {
+      fill: none;
+      stroke: #0dcaf0;
+      stroke-width: 1.5px;
+      stroke-dasharray: 4,4;
+      marker-end: url(#arrow-evidence);
+    }
+    .node-label {
+      font-size: 12px;
+      font-weight: 500;
+      pointer-events: none;
+      text-shadow: 0 1px 0 #fff, 1px 0 0 #fff, 0 -1px 0 #fff, -1px 0 0 #fff;
+    }
+    .tooltip {
+      position: absolute;
+      text-align: left;
+      padding: 8px 12px;
+      font-size: 12px;
+      background: rgba(33, 37, 41, 0.95);
+      color: #fff;
+      border-radius: 4px;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.2s;
+      transform: translate(-50%, -100%);
+      margin-top: -10px;
+      white-space: pre-wrap;
+    }
+  </style>
+</head>
+<body>
+  <h2>Single Trace Flow</h2>
+  <div class="header-bar">
+    <label for="trace-select"><strong>Select Trace:</strong></label>
+    <select id="trace-select">
+      <option value="">Loading...</option>
+    </select>
+  </div>
+  <p>Solid lines: Sequence. Dashed lines: Evidence dependencies. Click to highlight.</p>
+  <div id="graph-container">
+    <div id="tooltip" class="tooltip"></div>
+  </div>
+
+  <script>
+    const width = 800;
+    const height = 600;
+    const container = d3.select("#graph-container");
+    const tooltip = d3.select("#tooltip");
+    
+    // Create base SVG once
+    const svg = container.append("svg")
+      .attr("width", width)
+      .attr("height", height);
+
+    // Setup Arrow Markers
+    const defs = svg.append("defs");
+    defs.append("marker")
+      .attr("id", "arrow")
+      .attr("viewBox", "0 -5 10 10")
+      .attr("refX", 25)
+      .attr("refY", 0)
+      .attr("markerWidth", 6)
+      .attr("markerHeight", 6)
+      .attr("orient", "auto")
+      .append("path")
+      .attr("fill", "#adb5bd")
+      .attr("d", "M0,-5L10,0L0,5");
+      
+    defs.append("marker")
+      .attr("id", "arrow-evidence")
+      .attr("viewBox", "0 -5 10 10")
+      .attr("refX", 25)
+      .attr("refY", 0)
+      .attr("markerWidth", 6)
+      .attr("markerHeight", 6)
+      .attr("orient", "auto")
+      .append("path")
+      .attr("fill", "#0dcaf0")
+      .attr("d", "M0,-5L10,0L0,5");
+
+    const gMain = svg.append("g");
+
+    const colorScale = d3.scaleOrdinal()
+      .domain(["tool", "llm", "observation", "decision", "start"])
+      .range(["#20c997", "#fd7e14", "#6c757d", "#0dcaf0", "#343a40"]);
+
+    async function loadDropdown() {
+      const res = await fetch('/api/runs');
+      const data = await res.json();
+      const select = document.getElementById('trace-select');
+      select.innerHTML = '';
+      
+      let validRuns = data.runs.filter(r => !r.error);
+      if (validRuns.length === 0) {
+        select.innerHTML = '<option>No traces available</option>';
+        return;
+      }
+
+      validRuns.forEach(run => {
+        const option = document.createElement('option');
+        option.value = run.run_id;
+        option.textContent = `${run.run_id} (${run.ticket_id}) - ${run.steps} steps`;
+        select.appendChild(option);
+      });
+
+      // Load the first trace automatically
+      loadTrace(validRuns[0].run_id);
+
+      select.addEventListener('change', (e) => {
+        loadTrace(e.target.value);
+      });
+    }
+
+    async function loadTrace(runId) {
+      if (!runId) return;
+      const res = await fetch(`/api/runs/${runId}`);
+      const data = await res.json();
+      renderGraph(data.record.steps);
+    }
+
+    function renderGraph(steps) {
+      gMain.selectAll("*").remove(); // clear old graph
+
+      if (!steps || steps.length === 0) return;
+
+      const nodes = steps.map(s => {
+        const latency = (s.tool && s.tool.latency_ms) || (s.llm && s.llm.latency_ms) || 0;
+        return {
+          id: s.step_id.toString(),
+          label: s.intent || s.kind,
+          type: s.kind,
+          latency: latency,
+          tool_name: s.tool ? s.tool.tool_name : null,
+          error: s.tool ? s.tool.error : null
+        };
+      });
+
+      // Add START node
+      nodes.push({
+        id: "start",
+        label: "START",
+        type: "start",
+        latency: 0,
+        tool_name: null,
+        error: null
+      });
+
+      const links = [];
+      
+      // Link from START to the first step
+      if (steps.length > 0) {
+        links.push({
+          source: "start",
+          target: steps[0].step_id.toString(),
+          isEvidence: false
+        });
+      }
+
+      // Sequence Links
+      for(let i = 0; i < steps.length - 1; i++) {
+        links.push({
+          source: steps[i].step_id.toString(),
+          target: steps[i+1].step_id.toString(),
+          isEvidence: false
+        });
+      }
+
+      // Evidence Links
+      steps.forEach(step => {
+        if (step.evidence && step.evidence.length > 0) {
+          step.evidence.forEach(ev => {
+            if (ev.source && ev.source.startsWith("step:")) {
+              const srcId = ev.source.split(":")[1];
+              // Avoid duplicates if it's identical to a sequence link
+              const exists = links.find(l => l.source === srcId && l.target === step.step_id.toString());
+              if (!exists) {
+                links.push({
+                  source: srcId,
+                  target: step.step_id.toString(),
+                  isEvidence: true
+                });
+              }
+            }
+          });
+        }
+      });
+
+      const simulation = d3.forceSimulation(nodes)
+        .force("link", d3.forceLink(links).id(d => d.id).distance(120))
+        .force("charge", d3.forceManyBody().strength(-800))
+        .force("center", d3.forceCenter(width / 2, height / 2))
+        .force("x", d3.forceX(width / 2).strength(0.1))
+        .force("y", d3.forceY(height / 2).strength(0.1));
+
+      const link = gMain.append("g")
+        .selectAll("path")
+        .data(links)
+        .join("path")
+        .attr("class", d => d.isEvidence ? "evidence-link" : "link");
+
+      const node = gMain.append("g")
+        .selectAll("g")
+        .data(nodes)
+        .join("g")
+        .call(d3.drag()
+          .on("start", dragstarted)
+          .on("drag", dragged)
+          .on("end", dragended));
+
+      node.append("circle")
+        .attr("class", "node-circle")
+        .attr("r", 20)
+        .attr("fill", d => d.error ? "#dc3545" : colorScale(d.type)) // red if error
+        .on("mouseover", function(event, d) {
+          let details = `<strong>${d.label}</strong>\nType: ${d.type}\nLatency: ${d.latency}ms`;
+          if (d.tool_name) details += `\nTool: ${d.tool_name}`;
+          if (d.error) details += `\nError: ${d.error}`;
+          
+          tooltip.style("opacity", 1)
+            .html(details)
+            .style("left", (event.pageX) + "px")
+            .style("top", (event.pageY) + "px");
+        })
+        .on("mouseout", function() {
+          tooltip.style("opacity", 0);
+        })
+        .on("click", function(event, d) {
+          d3.selectAll(".node-circle").classed("active", false);
+          d3.select(this).classed("active", true);
+        });
+
+      node.append("text")
+        .attr("class", "node-label")
+        .attr("dx", 25)
+        .attr("dy", 4)
+        .text(d => d.label);
+
+      simulation.on("tick", () => {
+        link.attr("d", d => {
+          const dx = d.target.x - d.source.x;
+          const dy = d.target.y - d.source.y;
+          // Curve evidence lines slightly
+          if (d.isEvidence) {
+            const dr = Math.sqrt(dx * dx + dy * dy) * 1.5;
+            return `M${d.source.x},${d.source.y} A${dr},${dr} 0 0,1 ${d.target.x},${d.target.y}`;
+          }
+          return `M${d.source.x},${d.source.y} L${d.target.x},${d.target.y}`;
+        });
+
+        node.attr("transform", d => `translate(${d.x},${d.y})`);
+      });
+
+      function dragstarted(event) {
+        if (!event.active) simulation.alphaTarget(0.3).restart();
+        event.subject.fx = event.subject.x;
+        event.subject.fy = event.subject.y;
+      }
+      function dragged(event) {
+        event.subject.fx = event.x;
+        event.subject.fy = event.y;
+      }
+      function dragended(event) {
+        if (!event.active) simulation.alphaTarget(0);
+        event.subject.fx = null;
+        event.subject.fy = null;
+      }
+    }
+
+    loadDropdown();
+  </script>
+</body>
+</html>
