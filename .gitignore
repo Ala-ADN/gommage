@@ -14,3 +14,4 @@ wheels/
 .pytest_cache/
 .jira.env
 .env
+.vscode/
