@@ -45,7 +45,7 @@
       stroke-opacity: 0.6;
     }
     .tooltip {
-      position: absolute;
+      position: fixed;
       text-align: left;
       padding: 8px 12px;
       font-size: 12px;
@@ -199,8 +199,8 @@
         .on("mouseover", function(event, d) {
           tooltip.style("opacity", 1)
             .html(`<strong>${d.source.label} → ${d.target.label}</strong>\nFlow: ${d.value} traces`)
-            .style("left", (event.pageX) + "px")
-            .style("top", (event.pageY) + "px");
+            .style("left", (event.clientX) + "px")
+            .style("top", (event.clientY) + "px");
         })
         .on("mouseout", () => tooltip.style("opacity", 0));
 
@@ -219,8 +219,8 @@
         .on("mouseover", function(event, d) {
           tooltip.style("opacity", 1)
             .html(`<strong>${d.label}</strong>\nTotal Flow: ${d.value}`)
-            .style("left", (event.pageX) + "px")
-            .style("top", (event.pageY) + "px");
+            .style("left", (event.clientX) + "px")
+            .style("top", (event.clientY) + "px");
         })
         .on("mouseout", () => tooltip.style("opacity", 0));
 
