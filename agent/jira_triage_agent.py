@@ -16,7 +16,10 @@ from recorder.proxy.openai_client import OpenAICompletion
 from recorder.adapters.function_adapter import gommage_tool
 from recorder.proxy.tool_proxy import ToolProxy
 from recorder.serializer.aer_schema import AgentExecutionRecord
+from recorder.serializer.step_snapshot import StepSnapshotBuilder
 
+
+DEMO_DISPLAY_MODEL = "gpt-4o-mini"
 
 TRIAGE_SYSTEM_PROMPT = """You are a careful Jira triage agent.
 Choose one next action at a time from the allowed tools. Return only JSON with:
@@ -133,10 +136,26 @@ def run_jira_triage(
     if mode == "auto":
         mode = "live" if os.getenv("OPENAI_API_KEY") else "demo"
     if mode in {"demo", "deterministic", "local", "mock"}:
+        if _is_proj_4421_story(ticket_id, issue):
+            return run_proj_4421_silent_closure_demo(ticket_id, issue=issue, config=config)
         return run_jira_triage_demo(ticket_id, issue=issue, llm_backend=llm_backend, config=config)
     if mode in {"live", "planner", "full"}:
         return run_jira_triage_live(ticket_id, issue=issue, llm_backend=llm_backend, config=config)
     raise ValueError(f"unsupported agent mode: {config.agent_mode}")
+
+
+def _is_proj_4421_story(ticket_id: str, issue: dict | None) -> bool:
+    text = " ".join(
+        str(part or "")
+        for part in [
+            ticket_id,
+            issue.get("ticket_id") if issue else "",
+            issue.get("key") if issue else "",
+            issue.get("summary") if issue else "",
+            issue.get("description") if issue else "",
+        ]
+    ).lower()
+    return "proj-4421" in text or "silent" in text and "closed" in text
 
 
 def _new_record(
@@ -229,6 +248,174 @@ def run_jira_triage_demo(
     if self_steps := record.steps:
         self_steps[-1].intent = "Notify owner"
 
+    record.complete()
+    return record
+
+
+def run_proj_4421_silent_closure_demo(
+    ticket_id: str,
+    *,
+    issue: dict | None = None,
+    config: AgentRuntimeConfig | None = None,
+) -> AgentExecutionRecord:
+    config = config or AgentRuntimeConfig.from_env(agent_mode="demo")
+    normalized_issue = _normalize_issue(ticket_id, issue) or {
+        "ticket_id": ticket_id,
+        "summary": "PROJ-4421: Billing export request closed without customer response",
+        "description": (
+            "Customer reported that a billing export support request was marked Done, "
+            "but they never received a response or confirmation."
+        ),
+        "priority": "High",
+        "reporter": "customer-success@example.com",
+        "owner": "backend-team@example.com",
+        "assignee": "Backend",
+        "labels": ["billing-export", "customer-impact", "silent-closure"],
+        "status": "Done",
+        "issue_type": "Task",
+        "source": "jira",
+    }
+    record = _new_record(
+        ticket_id,
+        normalized_issue,
+        llm_model=DEMO_DISPLAY_MODEL,
+        llm_backend="deterministic",
+        agent_mode="demo",
+        config=config,
+    )
+    record.agent_name = "jira-triage-proj-4421"
+    record.metadata.update(
+        {
+            "demo_story": "proj-4421-silent-closure",
+            "bad_path": {
+                "route_team": "Backend",
+                "email_to": "",
+                "customer_comment": None,
+                "closed_by": "agent",
+            },
+            "corrected_path_hint": {
+                "route_team": "Customer Success",
+                "email_to": normalized_issue.get("reporter") or "customer@example.com",
+                "required_before_done": "customer-facing response or comment",
+            },
+        }
+    )
+    snapshots = StepSnapshotBuilder(record)
+
+    ticket_payload = {
+        **normalized_issue,
+        "customer_response_present": False,
+        "comments": [],
+        "closed_by": "agent",
+    }
+    snapshots.add_tool_step(
+        tool_name="jira.get_ticket",
+        parameters={"ticket_id": ticket_id},
+        result=ticket_payload,
+        side_effecting=False,
+        intent="Load Done ticket state",
+        observation="Ticket is already Done with no customer-facing comments.",
+        inference="The apparent success state conflicts with missing customer response evidence.",
+        context={"ticket_id": ticket_id, "status": "Done", "priority": "High"},
+        latency_ms=42,
+    )
+    snapshots.add_llm_step(
+        prompt=(
+            "Triage Jira issue PROJ-4421.\n"
+            "Fields: Status=Done, Priority=High, Assignee=Backend, Comments=0, Closed by=agent.\n"
+            "Decide whether the customer received a valid response."
+        ),
+        response="Treat the Backend assignment as sufficient owner notification and close the workflow.",
+        system_message="You are a Jira triage agent. Prefer automated routing when a technical owner is present.",
+        model=DEMO_DISPLAY_MODEL,
+        intent="Classify silent closure",
+        observation="The agent sees Done and Backend assignment but does not verify customer response.",
+        inference="Bug: Done status was trusted more than customer-facing evidence.",
+        context={
+            "ticket_id": ticket_id,
+            "assignee": "Backend",
+            "comments": 0,
+            "customer_response_present": False,
+        },
+        latency_ms=118,
+        token_count=78,
+    )
+    snapshots.add_tool_step(
+        tool_name="jira.search",
+        parameters={"jql": f'issue = "{ticket_id}" AND comments is not EMPTY', "max_results": 5},
+        result=[],
+        side_effecting=False,
+        intent="Check response evidence",
+        observation="No comment evidence found.",
+        inference="The agent should block closure here, but the next step ignores this evidence.",
+        context={"ticket_id": ticket_id, "expected": "customer comment before Done"},
+        latency_ms=67,
+    )
+    snapshots.add_llm_step(
+        prompt=(
+            "Route the Done ticket. Evidence search returned no comments. "
+            "Choose notification target and closure action."
+        ),
+        response='{"team":"Backend","notify_to":"","close":true,"rationale":"Backend owns export systems."}',
+        system_message="Return compact routing JSON.",
+        model=DEMO_DISPLAY_MODEL,
+        intent="Plan route and notification",
+        observation="The plan routes to Backend and leaves notify_to empty.",
+        inference="This is the silent-closure decision: Backend route, empty recipient, close=true.",
+        context={
+            "ticket_id": ticket_id,
+            "evidence": {"comments": 0},
+            "planned_team": "Backend",
+            "notify_to": "",
+            "close": True,
+        },
+        latency_ms=96,
+        token_count=64,
+    )
+    snapshots.add_tool_step(
+        tool_name="email.send",
+        parameters={
+            "to": "",
+            "subject": f"Confirmation for {ticket_id}",
+            "body": "Your support request has been routed and closed.",
+        },
+        result={
+            "ok": True,
+            "dry_run": True,
+            "to": "",
+            "accepted_recipients": [],
+            "warning": "dry-run mailer accepted empty recipient",
+        },
+        side_effecting=True,
+        intent="Send customer confirmation",
+        observation="Confirmation email has no recipient.",
+        inference="No customer could receive this confirmation.",
+        context={"ticket_id": ticket_id, "planned_team": "Backend", "notify_to": ""},
+        latency_ms=211,
+        metadata={"mock_recommended": True},
+    )
+    snapshots.add_tool_step(
+        tool_name="jira.transition",
+        parameters={
+            "ticket_id": ticket_id,
+            "status": "Done",
+            "comment": "",
+        },
+        result={
+            "ok": True,
+            "ticket_id": ticket_id,
+            "status": "Done",
+            "comment_created": False,
+            "closed_by": "agent",
+        },
+        side_effecting=True,
+        intent="Close ticket",
+        observation="Ticket remains Done without a customer comment.",
+        inference="The closure hides the missing response unless the trace is replayed.",
+        context={"ticket_id": ticket_id, "customer_response_present": False, "status": "Done"},
+        latency_ms=133,
+        metadata={"mock_recommended": True},
+    )
     record.complete()
     return record
 

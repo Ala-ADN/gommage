@@ -143,7 +143,7 @@ function buildSankey(records) {
   let maxDepth = 1;
 
   function touchNode(id, label, depth, kind) {
-    const existing = nodes.get(id) || { id, label, depth, kind, value: 0 };
+    const existing = nodes.get(id) || { id, label, depth, kind, value: 0, runIds: [] };
     existing.value += 1;
     nodes.set(id, existing);
     maxDepth = Math.max(maxDepth, depth);
@@ -152,14 +152,14 @@ function buildSankey(records) {
 
   records.forEach((record) => {
     if (!record?.steps?.length) return;
-    touchNode("0:start", "START", 0, "start");
+    touchNode("0:start", "START", 0, "start").runIds.push(record.run_id);
     let previous = "0:start";
 
     record.steps.forEach((step, index) => {
       const depth = index + 1;
       const id = flowNodeKey(step, depth);
       const label = step.tool?.tool_name || step.intent || step.kind;
-      touchNode(id, label, depth, step.kind);
+      touchNode(id, label, depth, step.kind).runIds.push(record.run_id);
       const linkKey = `${previous}->${id}`;
       links.set(linkKey, {
         source: previous,
@@ -170,7 +170,7 @@ function buildSankey(records) {
     });
 
     const endId = `${record.steps.length + 1}:end`;
-    touchNode(endId, "END", record.steps.length + 1, "end");
+    touchNode(endId, "END", record.steps.length + 1, "end").runIds.push(record.run_id);
     const linkKey = `${previous}->${endId}`;
     links.set(linkKey, {
       source: previous,
@@ -331,6 +331,25 @@ function App() {
     guarded(() => replayRun(next));
   }
 
+  function applyToolParameterEdit(step, rawJson) {
+    let toolParameters;
+    try {
+      toolParameters = JSON.parse(rawJson);
+    } catch (caught) {
+      setError(`Invalid JSON: ${caught.message}`);
+      return;
+    }
+    const next = new Map(edits);
+    next.set(step.step_id, {
+      ...(next.get(step.step_id) || {}),
+      step_id: step.step_id,
+      tool_parameters: toolParameters,
+      note: "Tool parameters edited in Jira issue panel",
+    });
+    setEdits(next);
+    guarded(() => replayRun(next));
+  }
+
   useEffect(() => {
     guarded(async () => {
       const context = await view.getContext();
@@ -380,6 +399,7 @@ function App() {
   }, [isIssueContext, runs]);
 
   const sideEffects = record?.steps.filter((step) => step.tool?.side_effecting).length || 0;
+  const aggregateStats = useMemo(() => summarizeRecords(aggregateRecords), [aggregateRecords]);
   const replayStep = selectedStep
     ? replay?.replayed_steps?.find((step) => step.step_id === selectedStep.step_id)
     : null;
@@ -388,7 +408,7 @@ function App() {
     <main className="app">
       <header className="topbar">
         <div>
-          <h1>Gommage Replay</h1>
+          <h1>{isIssueContext ? "Gommage Replay" : "Gommage Demo Dashboard"}</h1>
           <p>{issueContext?.issueKey || boardLabel}</p>
         </div>
         <div className="actions">
@@ -440,7 +460,17 @@ function App() {
       </section>
 
       {!isIssueContext ? (
-        <SankeyPanel records={aggregateRecords} runCount={runs.length} />
+        <>
+          <section className="metrics">
+            <Metric label="Runs" value={aggregateStats.runs} />
+            <Metric label="Tool calls" value={aggregateStats.toolCalls} />
+            <Metric label="Side effects" value={aggregateStats.sideEffects} />
+            <Metric label="Errored tools" value={aggregateStats.toolErrors} />
+            <Metric label="Avg steps" value={formatMetric(aggregateStats.avgSteps)} />
+            <Metric label="Silent closures" value={aggregateStats.silentClosures} />
+          </section>
+          <SankeyPanel records={aggregateRecords} runCount={runs.length} onSelectRun={(runId) => guarded(() => loadRun(runId))} />
+        </>
       ) : record ? (
         <TraceGraphPanel
           record={record}
@@ -512,6 +542,7 @@ function App() {
               replayStep={replayStep}
               edit={edits.get(selectedStep.step_id)}
               onPromptEdit={applyPromptEdit}
+              onToolParameterEdit={applyToolParameterEdit}
               onToolResultEdit={applyToolResultEdit}
             />
           ) : (
@@ -540,12 +571,35 @@ function App() {
   );
 }
 
-function SankeyPanel({ records, runCount }) {
+function summarizeRecords(records) {
+  const totals = records.reduce(
+    (acc, item) => {
+      const steps = item?.steps || [];
+      acc.runs += 1;
+      acc.steps += steps.length;
+      acc.toolCalls += steps.filter((step) => step.kind === "tool").length;
+      acc.sideEffects += steps.filter((step) => step.tool?.side_effecting).length;
+      acc.toolErrors += steps.filter((step) => step.tool?.error).length;
+      if (item?.metadata?.demo_story === "proj-4421-silent-closure") {
+        acc.silentClosures += 1;
+      }
+      return acc;
+    },
+    { runs: 0, steps: 0, toolCalls: 0, sideEffects: 0, toolErrors: 0, silentClosures: 0 },
+  );
+  return {
+    ...totals,
+    avgSteps: totals.runs ? totals.steps / totals.runs : 0,
+  };
+}
+
+function SankeyPanel({ records, runCount, onSelectRun }) {
   const sankey = useMemo(() => buildSankey(records), [records]);
-  const width = 920;
-  const height = 310;
-  const margin = 28;
-  const nodeWidth = 14;
+  const [zoom, setZoom] = useState(1);
+  const margin = 64;
+  const nodeWidth = 30;
+  const columnGap = 150;
+  const width = Math.max(1680, margin * 2 + (sankey.maxDepth + 1) * columnGap + 280);
   const columns = new Map();
 
   sankey.nodes.forEach((node) => {
@@ -555,18 +609,19 @@ function SankeyPanel({ records, runCount }) {
   });
 
   const positioned = new Map();
+  const maxColumnRows = Math.max(1, ...Array.from(columns.values()).map((column) => column.length));
+  const height = Math.max(760, margin * 2 + maxColumnRows * 92);
   columns.forEach((column, depth) => {
     const total = column.reduce((sum, node) => sum + node.value, 0) || 1;
-    const gap = 12;
+    const gap = 34;
     const usableHeight = height - margin * 2 - gap * Math.max(0, column.length - 1);
     let y = margin;
     column
       .sort((a, b) => b.value - a.value || a.label.localeCompare(b.label))
       .forEach((node) => {
-        const nodeHeight = Math.max(20, (node.value / total) * usableHeight);
-        const x =
-          margin + (depth / Math.max(1, sankey.maxDepth)) * (width - margin * 2 - nodeWidth);
-        positioned.set(node.id, { ...node, x, y, height: nodeHeight });
+        const nodeHeight = Math.max(52, (node.value / total) * usableHeight);
+        const x = margin + depth * columnGap;
+        positioned.set(node.id, { ...node, x, y, width: nodeWidth, height: nodeHeight });
         y += nodeHeight + gap;
       });
   });
@@ -575,45 +630,85 @@ function SankeyPanel({ records, runCount }) {
 
   return (
     <section className="panel viz-panel">
-      <PanelHeader title="Aggregate Sankey flow" />
+      <header className="panel-header">
+        <h2>Aggregate Sankey flow</h2>
+        <div className="zoom-controls" aria-label="Sankey zoom controls">
+          <button type="button" onClick={() => setZoom((value) => Math.max(0.6, Number((value - 0.15).toFixed(2))))}>
+            -
+          </button>
+          <span>{Math.round(zoom * 100)}%</span>
+          <button type="button" onClick={() => setZoom((value) => Math.min(1.8, Number((value + 0.15).toFixed(2))))}>
+            +
+          </button>
+          <button type="button" onClick={() => setZoom(1)}>
+            Reset
+          </button>
+        </div>
+      </header>
       <p className="viz-note">
         Fuses {records.length ? records.length : 0} loaded traces{runCount > 20 ? " (first 20 shown)" : ""} by step order and behavior.
       </p>
       {records.length ? (
-        <svg className="sankey-viz" viewBox={`0 0 ${width} ${height}`} role="img">
-          <g className="sankey-links">
-            {sankey.links.map((link) => {
-              const source = positioned.get(link.source);
-              const target = positioned.get(link.target);
-              if (!source || !target) return null;
-              const sourceX = source.x + nodeWidth;
-              const sourceY = source.y + source.height / 2;
-              const targetX = target.x;
-              const targetY = target.y + target.height / 2;
-              const curve = Math.max(40, (targetX - sourceX) / 2);
-              return (
-                <path
-                  key={`${link.source}-${link.target}`}
-                  d={`M ${sourceX} ${sourceY} C ${sourceX + curve} ${sourceY}, ${targetX - curve} ${targetY}, ${targetX} ${targetY}`}
-                  strokeWidth={Math.max(2, (link.value / maxLink) * 18)}
+        <div className="sankey-scroll" role="region" aria-label="Scrollable aggregate flow">
+          <svg
+            className="sankey-viz"
+            width={width * zoom}
+            height={height * zoom}
+            viewBox={`0 0 ${width} ${height}`}
+            role="img"
+          >
+            <g className="sankey-links">
+              {sankey.links.map((link) => {
+                const source = positioned.get(link.source);
+                const target = positioned.get(link.target);
+                if (!source || !target) return null;
+                const sourceX = source.x + nodeWidth;
+                const sourceY = source.y + source.height / 2;
+                const targetX = target.x;
+                const targetY = target.y + target.height / 2;
+                const curve = Math.max(64, (targetX - sourceX) / 2);
+                return (
+                  <path
+                    key={`${link.source}-${link.target}`}
+                    d={`M ${sourceX} ${sourceY} C ${sourceX + curve} ${sourceY}, ${targetX - curve} ${targetY}, ${targetX} ${targetY}`}
+                    strokeWidth={Math.max(1.5, (link.value / maxLink) * 9)}
+                  >
+                    <title>{`${source.label} -> ${target.label}: ${link.value} trace${link.value === 1 ? "" : "s"}`}</title>
+                  </path>
+                );
+              })}
+            </g>
+            <g className="sankey-nodes">
+              {Array.from(positioned.values()).map((node) => (
+                <g
+                  className="clickable-node"
+                  key={node.id}
+                  transform={`translate(${node.x}, ${node.y})`}
+                  onClick={() => node.runIds?.[0] && onSelectRun?.(node.runIds[0])}
                 >
-                  <title>{`${source.label} -> ${target.label}: ${link.value} trace${link.value === 1 ? "" : "s"}`}</title>
-                </path>
-              );
-            })}
-          </g>
-          <g className="sankey-nodes">
-            {Array.from(positioned.values()).map((node) => (
-              <g key={node.id} transform={`translate(${node.x}, ${node.y})`}>
-                <rect className={`viz-node ${node.kind}`} width={nodeWidth} height={node.height} rx="5" />
-                <text x={node.x < width / 2 ? 22 : -8} y={node.height / 2} textAnchor={node.x < width / 2 ? "start" : "end"}>
-                  {shortLabel(node.label)}
-                </text>
-                <title>{`${node.label}: ${node.value} visit${node.value === 1 ? "" : "s"}`}</title>
-              </g>
-            ))}
-          </g>
-        </svg>
+                  <rect className={`viz-node ${node.kind}`} width={nodeWidth} height={node.height} rx="7" />
+                  <text
+                    className="node-label"
+                    x={node.x < width - 360 ? 44 : -14}
+                    y={Math.max(18, node.height / 2 - 8)}
+                    textAnchor={node.x < width - 360 ? "start" : "end"}
+                  >
+                    {shortLabel(node.label, 34)}
+                  </text>
+                  <text
+                    className="node-count"
+                    x={node.x < width - 360 ? 44 : -14}
+                    y={Math.max(38, node.height / 2 + 13)}
+                    textAnchor={node.x < width - 360 ? "start" : "end"}
+                  >
+                    {node.value} visit{node.value === 1 ? "" : "s"}
+                  </text>
+                  <title>{`${node.label}: ${node.value} visit${node.value === 1 ? "" : "s"}`}</title>
+                </g>
+              ))}
+            </g>
+          </svg>
+        </div>
       ) : (
         <p className="empty">Load traces to render aggregate flow.</p>
       )}
@@ -632,17 +727,21 @@ function TraceGraphPanel({ record, replay, selectedStepId, onSelectStep }) {
     1,
     ...timings.map((timing) => timing.llmMs + timing.toolMs + timing.idleMs),
   );
-  const width = 980;
-  const height = Math.max(180, 92 + steps.length * 82);
-  const centerX = 230;
-  const replayX = 590;
-  const startY = 44;
-  const stepGap = 82;
+  const width = 1280;
+  const height = Math.max(260, 124 + steps.length * 108);
+  const centerX = 360;
+  const replayX = 860;
+  const startY = 58;
+  const stepGap = 108;
+  const recordedNodeWidth = 320;
+  const recordedNodeHeight = 72;
+  const replayNodeWidth = 292;
+  const replayNodeHeight = 58;
   const replayByStep = new Map((replay?.replayed_steps || []).map((step) => [step.step_id, step]));
 
   return (
     <section className="panel viz-panel">
-      <PanelHeader title="Trace inspector" />
+      <PanelHeader title="Trajectory graph" />
       <div className="trace-summary">
         <Metric label="LLM time" value={formatMs(totalLlm)} />
         <Metric label="Tool time" value={formatMs(totalTool)} />
@@ -676,8 +775,8 @@ function TraceGraphPanel({ record, replay, selectedStepId, onSelectStep }) {
               role="listitem"
               type="button"
             >
-              <strong>#{step.step_id} {shortLabel(step.intent || step.kind, 28)}</strong>
-              <span>{shortLabel(label, 28)}</span>
+              <strong>#{step.step_id} {shortLabel(step.intent || step.kind, 36)}</strong>
+              <span>{shortLabel(label, 36)}</span>
               <span className="latency-bar" title={timingLabel(timing)}>
                 {timing.llmMs ? (
                   <i className="llm" style={{ width: `${Math.max(3, (timing.llmMs / maxStepTotal) * 100)}%` }} />
@@ -711,30 +810,30 @@ function TraceGraphPanel({ record, replay, selectedStepId, onSelectStep }) {
         <text className="start-label" x={centerX} y={startY + 4}>START</text>
         {steps.map((step, index) => {
           const y = startY + (index + 1) * stepGap;
-          const previousY = index === 0 ? startY + 18 : startY + index * stepGap + 28;
+          const previousY = index === 0 ? startY + 20 : startY + index * stepGap + recordedNodeHeight / 2;
           const replayStep = replayByStep.get(step.step_id);
           const selected = selectedStepId === step.step_id;
-          const label = shortLabel(step.tool?.tool_name || step.intent || step.kind, 30);
+          const label = shortLabel(step.tool?.tool_name || step.intent || step.kind, 42);
           return (
             <g key={step.step_id}>
-              <path className="trace-edge" d={`M ${centerX} ${previousY} L ${centerX} ${y - 30}`} />
+              <path className="trace-edge" d={`M ${centerX} ${previousY} L ${centerX} ${y - recordedNodeHeight / 2 - 8}`} />
               <g
                 className={`trace-node ${selected ? "selected" : ""} ${step.kind}`}
-                transform={`translate(${centerX - 110}, ${y - 28})`}
+                transform={`translate(${centerX - recordedNodeWidth / 2}, ${y - recordedNodeHeight / 2})`}
                 onClick={() => onSelectStep(step.step_id)}
               >
-                <rect width="220" height="56" rx="12" />
-                <text className="trace-kind" x="14" y="18">{step.kind.toUpperCase()}</text>
-                <text className="trace-label" x="14" y="39">{label}</text>
+                <rect width={recordedNodeWidth} height={recordedNodeHeight} rx="12" />
+                <text className="trace-kind" x="18" y="23">{step.kind.toUpperCase()}</text>
+                <text className="trace-label" x="18" y="49">{label}</text>
                 <title>{`${step.intent || stepLabel(step)} - ${timingLabel(stepTiming(steps, step))}`}</title>
               </g>
               {replayStep ? (
                 <>
-                  <path className="replay-edge" d={`M ${centerX + 116} ${y} C ${centerX + 210} ${y}, ${replayX - 190} ${y}, ${replayX - 104} ${y}`} />
-                  <g className={`replay-node ${replayStep.side_effect_blocked ? "blocked" : ""}`} transform={`translate(${replayX - 104}, ${y - 22})`}>
-                    <rect width="208" height="44" rx="12" />
-                    <text x="14" y="18">{replayStep.side_effect_blocked ? "Blocked safely" : replayStep.mocked ? "Mocked response" : "Replayed"}</text>
-                    <text className="trace-label" x="14" y="34">{replayStep.input_matches_original === false ? "Diverged input" : "Matched original input"}</text>
+                  <path className="replay-edge" d={`M ${centerX + recordedNodeWidth / 2 + 8} ${y} C ${centerX + 250} ${y}, ${replayX - 250} ${y}, ${replayX - replayNodeWidth / 2 - 8} ${y}`} />
+                  <g className={`replay-node ${replayStep.side_effect_blocked ? "blocked" : ""}`} transform={`translate(${replayX - replayNodeWidth / 2}, ${y - replayNodeHeight / 2})`}>
+                    <rect width={replayNodeWidth} height={replayNodeHeight} rx="12" />
+                    <text x="16" y="23">{replayStep.side_effect_blocked ? "Blocked safely" : replayStep.mocked ? "Mocked response" : "Replayed"}</text>
+                    <text className="trace-label" x="16" y="43">{replayStep.input_matches_original === false ? "Diverged input" : "Matched original input"}</text>
                   </g>
                 </>
               ) : null}
@@ -768,18 +867,23 @@ function Badge({ children, tone }) {
   return <em className={tone ? `badge ${tone}` : "badge"}>{children}</em>;
 }
 
-function StepInspector({ step, previousStep, steps, replayStep, edit, onPromptEdit, onToolResultEdit }) {
+function StepInspector({ step, previousStep, steps, replayStep, edit, onPromptEdit, onToolParameterEdit, onToolResultEdit }) {
+  const effectiveToolResult = edit?.tool_result ?? replayStep?.output ?? step.tool?.result ?? {};
   const [prompt, setPrompt] = useState(edit?.prompt || step.llm?.prompt || "");
+  const [toolParameters, setToolParameters] = useState(
+    JSON.stringify(edit?.tool_parameters ?? step.tool?.parameters ?? {}, null, 2),
+  );
   const [toolResult, setToolResult] = useState(
-    JSON.stringify(edit?.tool_result ?? step.tool?.result ?? {}, null, 2),
+    JSON.stringify(effectiveToolResult, null, 2),
   );
   const timing = stepTiming(steps, step);
   const diffLines = diffContexts(previousStep?.context || {}, step.context || {});
 
   useEffect(() => {
     setPrompt(edit?.prompt || step.llm?.prompt || "");
-    setToolResult(JSON.stringify(edit?.tool_result ?? step.tool?.result ?? {}, null, 2));
-  }, [step.step_id, edit, step.llm?.prompt, step.tool?.result]);
+    setToolParameters(JSON.stringify(edit?.tool_parameters ?? step.tool?.parameters ?? {}, null, 2));
+    setToolResult(JSON.stringify(effectiveToolResult, null, 2));
+  }, [step.step_id, edit, step.llm?.prompt, step.tool?.parameters, effectiveToolResult]);
 
   return (
     <div className="inspector-body">
@@ -826,6 +930,11 @@ function StepInspector({ step, previousStep, steps, replayStep, edit, onPromptEd
             <summary>Recorded result</summary>
             <pre>{stableStringify(step.tool.result)}</pre>
           </details>
+          <h3>Tool parameters editor</h3>
+          <textarea value={toolParameters} onChange={(event) => setToolParameters(event.target.value)} />
+          <button onClick={() => onToolParameterEdit(step, toolParameters)}>
+            Change parameters and continue
+          </button>
           <h3>Injected result</h3>
           <textarea value={toolResult} onChange={(event) => setToolResult(event.target.value)} />
           <button onClick={() => onToolResultEdit(step, toolResult)}>

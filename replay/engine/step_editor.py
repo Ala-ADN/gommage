@@ -13,6 +13,7 @@ from recorder.serializer.aer_schema import AgentExecutionRecord
 class StepEdit:
     step_id: int
     prompt: str | None = None
+    tool_parameters: dict[str, Any] | None = None
     tool_result: Any | None = None
     note: str = ""
 
@@ -30,6 +31,7 @@ class StepEditor:
                 {
                     "step_id": edit.step_id,
                     "prompt": edit.prompt,
+                    "tool_parameters": edit.tool_parameters,
                     "tool_result": edit.tool_result,
                     "note": edit.note,
                 }
@@ -51,5 +53,10 @@ class StepEditor:
                     raise ValueError(f"step {step.step_id} is not a tool step")
                 step.tool.result = edit.tool_result
                 step.observation = "tool result injected for replay"
+            if edit.tool_parameters is not None:
+                if step.tool is None:
+                    raise ValueError(f"step {step.step_id} is not a tool step")
+                step.tool.parameters = edit.tool_parameters
+                step.observation = "tool parameters edited for replay"
         edited.validate()
         return edited

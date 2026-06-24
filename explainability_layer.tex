@@ -1,0 +1,138 @@
+% !TeX program = pdflatex
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[margin=2.5cm]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage[colorlinks=true,linkcolor=blue,urlcolor=blue,citecolor=blue]{hyperref}
+
+\newcolumntype{Y}{>{\raggedright\arraybackslash}X}
+
+\title{\textbf{Explainability Layer}}
+\author{gommage}
+\date{June 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+gommage is not merely an application with an explainability feature. The whole
+project is the explainability layer for agent execution. It records what an
+agent saw, what it inferred, which tools it called, which evidence supported
+each step, and how the execution unfolded. The central artifact is the
+\emph{Agent Execution Record} (AER), which stores reasoning provenance as a
+structured object and enables the execution to be visualized as a directed
+acyclic graph (DAG).
+\end{abstract}
+
+\section{Purpose}
+
+The purpose of the explainability layer is to make autonomous agent behavior
+inspectable after execution. Traditional logs show events, but they rarely show
+the reasoning context that caused an event. gommage captures the agent's
+trajectory as structured provenance so developers, auditors, and operators can
+answer three questions:
+
+\begin{enumerate}[leftmargin=1.5em]
+  \item What did the agent know at each step?
+  \item Why did the agent choose the next action?
+  \item Which tool calls, observations, and evidence led to the final outcome?
+\end{enumerate}
+
+\section{Agent Execution Record}
+
+The AER is the provenance object produced for an agent run. It groups the run
+metadata and the ordered sequence of execution steps into a normalized schema.
+At the run level, an AER contains identifiers and lifecycle state such as:
+
+\begin{itemize}[leftmargin=1.5em]
+  \item \texttt{run\_id}: the unique execution identifier.
+  \item \texttt{jira\_ticket\_id}: the originating Jira ticket or task context.
+  \item \texttt{agent\_name}: the agent that produced the trace.
+  \item \texttt{status}: the execution state, such as running, completed, or failed.
+  \item \texttt{started\_at} and \texttt{completed\_at}: timestamps for the run.
+  \item \texttt{steps}: the sequence of recorded reasoning and action steps.
+\end{itemize}
+
+Each AER step records the local reasoning state. The step schema supports LLM
+steps, tool steps, observations, and decisions. A step includes:
+
+\begin{itemize}[leftmargin=1.5em]
+  \item \texttt{intent}: what the agent was trying to do.
+  \item \texttt{observation}: what the agent observed at that point.
+  \item \texttt{inference}: the reasoning or interpretation produced from the observation.
+  \item \texttt{context}: the local state visible to the agent.
+  \item \texttt{llm}: prompt, system message, model, response, latency, and token count.
+  \item \texttt{tool}: tool name, parameters, result, latency, errors, and mock status.
+  \item \texttt{evidence}: links to supporting artifacts, verdicts, and confidence.
+  \item \texttt{timestamp}: the time at which the step was recorded.
+\end{itemize}
+
+\section{Reasoning Provenance Features}
+
+\begin{table}[h]
+\centering
+\begin{tabularx}{\textwidth}{@{}p{0.28\textwidth}Y@{}}
+\toprule
+\textbf{Feature} & \textbf{Explainability Value} \\
+\midrule
+Prompt and response capture &
+Shows exactly what the model received and produced at each LLM step. \\
+Context snapshots &
+Preserves the state available to the agent when it made a decision. \\
+Intent, observation, inference fields &
+Separates the agent's goal, sensory input, and interpretation so reasoning can
+be audited step by step. \\
+Tool call provenance &
+Records tool parameters, results, latency, errors, and whether a call was
+side-effecting or mocked. \\
+Evidence chains &
+Connects steps to supporting artifacts, verdicts, confidence scores, and
+metadata. \\
+Timing metadata &
+Supports latency analysis across LLM calls, tool calls, and idle time between
+steps. \\
+Trace hashing &
+Provides a stable fingerprint for detecting whether a recorded trajectory has
+changed. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\section{Execution DAG}
+
+The visualized DAG presents the AER as an execution graph. Nodes represent
+recorded reasoning, decision, LLM, tool, or observation steps. Edges represent
+the execution order and dependency between steps. This graph makes the agent's
+trajectory readable as a causal path rather than as a flat log.
+
+The DAG view provides:
+
+\begin{itemize}[leftmargin=1.5em]
+  \item A run-level view of the full execution trajectory.
+  \item Step-level expansion into prompts, responses, tool calls, and evidence.
+  \item Visual distinction between LLM reasoning, tool execution, observations,
+  errors, and mocked side-effecting calls.
+  \item Branch visibility when a replay diverges from the original execution.
+  \item A direct path from graph nodes back to the underlying AER fields.
+\end{itemize}
+
+\section{Why This Is the Explainability Layer}
+
+gommage provides explainability by sitting between the agent and the systems it
+uses. It captures model interaction, tool interaction, context, evidence, and
+execution timing without requiring the developer to reconstruct behavior from
+unstructured logs. The result is a provenance layer that supports debugging,
+audit, replay, and human inspection of agent reasoning.
+
+The AER is the durable representation of that provenance. The DAG is the human
+interface for navigating it. Together, they make agent behavior explainable at
+the level where failures actually occur: individual reasoning and action steps.
+
+\end{document}

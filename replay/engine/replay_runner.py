@@ -51,6 +51,7 @@ class ReplayRunner:
         )
 
         originals = {step.step_id: step for step in self.record.steps}
+        branch_context: dict[str, Any] = {}
         for step in replay_record.steps:
             original = originals[step.step_id]
             input_matches = step.input_fingerprint() == original.input_fingerprint()
@@ -71,7 +72,29 @@ class ReplayRunner:
                     step.tool.parameters,
                 )
                 should_mock = step.tool.side_effecting or decision.side_effecting
-                output = self.registry.mock_payload_for(step.tool) if should_mock else step.tool.result
+                edited_parameters = step.tool.parameters != original.tool.parameters
+                if edited_parameters:
+                    output = _simulated_tool_output(step.tool.tool_name, step.tool.parameters, step.tool.result)
+                elif (
+                    step.tool.tool_name == "jira.transition"
+                    and branch_context.get("customer_response_path_valid")
+                ):
+                    output = _simulated_tool_output(
+                        step.tool.tool_name,
+                        {
+                            **step.tool.parameters,
+                            "comment": step.tool.parameters.get("comment")
+                            or "Customer response path verified during replay before closure.",
+                        },
+                        step.tool.result,
+                    )
+                elif should_mock:
+                    output = self.registry.mock_payload_for(step.tool)
+                else:
+                    output = step.tool.result
+                if step.tool.tool_name == "email.send" and isinstance(output, dict):
+                    if output.get("to"):
+                        branch_context["customer_response_path_valid"] = True
                 result.replayed_steps.append(
                     ReplayStepResult(
                         step_id=step.step_id,
@@ -93,3 +116,43 @@ class ReplayRunner:
                 )
             )
         return result
+
+
+def _simulated_tool_output(tool_name: str, parameters: dict[str, Any], original_result: Any) -> Any:
+    """Return a deterministic branch result when replay edits tool parameters."""
+    if tool_name == "email.send":
+        return {
+            "ok": True,
+            "mocked": True,
+            "branch": "edited-parameters",
+            "tool_name": tool_name,
+            "to": parameters.get("to", ""),
+            "subject": parameters.get("subject", ""),
+            "body": parameters.get("body", ""),
+            "reason": "replay used edited parameters and did not send external email",
+        }
+    if tool_name in {"jira.add_comment", "jira.update_ticket", "jira.transition"}:
+        return {
+            "ok": True,
+            "mocked": True,
+            "branch": "edited-parameters",
+            "tool_name": tool_name,
+            "ticket_id": parameters.get("ticket_id"),
+            "status": parameters.get("status"),
+            "comment": parameters.get("comment") or parameters.get("body"),
+            "customer_response_path_valid": bool(parameters.get("comment") or parameters.get("body")),
+            "closure_allowed": tool_name == "jira.transition" and bool(parameters.get("comment")),
+            "reason": "replay used edited Jira parameters without mutating Jira",
+        }
+    if isinstance(original_result, dict):
+        return {
+            **original_result,
+            "branch": "edited-parameters",
+            "parameters": parameters,
+        }
+    return {
+        "branch": "edited-parameters",
+        "tool_name": tool_name,
+        "parameters": parameters,
+        "original_result": original_result,
+    }

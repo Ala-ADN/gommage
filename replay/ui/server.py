@@ -236,6 +236,7 @@ def _step_edits_from_payload(payload: dict[str, Any]) -> list[StepEdit]:
         StepEdit(
             step_id=int(item["step_id"]),
             prompt=item.get("prompt"),
+            tool_parameters=item.get("tool_parameters"),
             tool_result=item.get("tool_result"),
             note=item.get("note", ""),
         )

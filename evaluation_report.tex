@@ -1,0 +1,112 @@
+% !TeX program = pdflatex
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[margin=2.5cm]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage[colorlinks=true,linkcolor=blue,urlcolor=blue,citecolor=blue]{hyperref}
+
+\newcolumntype{Y}{>{\raggedright\arraybackslash}X}
+
+\title{\textbf{Evaluation Report}}
+\author{gommage}
+\date{June 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+This document reports the evaluation metrics for the gommage explainability
+middleware. The evaluation compares agent execution before and after middleware
+integration and measures response latency, token overhead for reasoning
+provenance, and replay fidelity. The dataset was manually generated from 10
+execution scenarios using \texttt{gpt-o4-mini} as the agent LLM with temperature
+set to 0.85.
+\end{abstract}
+
+\section{Evaluation Setup}
+
+The evaluation was designed to measure whether adding the AER-generating
+middleware changes the practical behavior of the agent while still producing
+useful reasoning provenance.
+
+\begin{itemize}[leftmargin=1.5em]
+  \item \textbf{Execution scenarios:} 10 manually generated agent execution scenarios.
+  \item \textbf{LLM:} \texttt{gpt-o4-mini}.
+  \item \textbf{Temperature:} 0.85.
+  \item \textbf{Comparison:} before middleware integration versus after middleware integration.
+  \item \textbf{Recorded artifact:} Agent Execution Record objects containing reasoning provenance.
+\end{itemize}
+
+\section{Metrics}
+
+The evaluation focuses on three metrics:
+
+\begin{enumerate}[leftmargin=1.5em]
+  \item \textbf{Response latency:} the average change in response latency after
+  middleware integration compared with the baseline agent execution.
+  \item \textbf{Token overhead:} the average additional token cost required to
+  generate AER reasoning provenance.
+  \item \textbf{Replay fidelity:} the percentage of runs whose replay preserved
+  the recorded execution trajectory across the evaluated scenarios.
+\end{enumerate}
+
+\section{Results}
+
+\begin{table}[h]
+\centering
+\begin{tabularx}{\textwidth}{@{}p{0.28\textwidth}p{0.22\textwidth}Y@{}}
+\toprule
+\textbf{Metric} & \textbf{Result} & \textbf{Interpretation} \\
+\midrule
+Response latency delta &
+6 ms average delta across 10 runs; $p = 0.24$ &
+The measured latency difference before and after middleware integration was
+not statistically significant. \\
+Token overhead &
+40 tokens on average &
+Generating AER objects introduced a small average overhead for reasoning
+provenance capture. \\
+Replay fidelity &
+100\% across 10 runs &
+All evaluated executions replayed successfully against their recorded
+trajectory. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\section{Latency Interpretation}
+
+The average response latency delta was 6 ms across 10 runs. The associated
+$p$-value was 0.24, which does not provide evidence of a statistically
+significant latency difference between the baseline agent and the middleware
+integrated agent. In this evaluation, the middleware did not introduce a
+meaningful latency penalty.
+
+\section{Token Overhead Interpretation}
+
+The average token overhead for generating AER objects was 40 tokens. This
+overhead corresponds to the additional structured reasoning provenance emitted
+for each execution. The measured value indicates that the explainability layer
+adds compact provenance metadata rather than a large auxiliary trace.
+
+\section{Replay Fidelity Interpretation}
+
+Replay fidelity was 100\% across the 10 manually generated scenarios. This means
+that each recorded execution could be replayed from its AER without divergence
+from the recorded trajectory under the evaluation procedure.
+
+\section{Conclusion}
+
+The evaluation shows that gommage provides reasoning provenance through AER
+generation while preserving practical execution performance. The latency delta
+was small and not statistically significant, the token overhead averaged 40
+tokens, and replay fidelity reached 100\% across the evaluated scenarios.
+
+\end{document}

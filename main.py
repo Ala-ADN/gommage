@@ -6,6 +6,7 @@ from recorder.env_loader import load_local_env
 
 load_local_env()
 
+from agent.demo_board_traces import build_board_demo_traces
 from agent.jira_triage_agent import run_jira_triage
 from evaluation.eval_runner import run_evaluation
 from recorder.storage.local_store import LocalTraceStore
@@ -25,6 +26,13 @@ def main() -> None:
     record_parser.add_argument("--write-policy")
     record_parser.add_argument("--external-messages")
     record_parser.add_argument("--max-steps", type=int)
+
+    seed_parser = subparsers.add_parser("seed-proj-4421", help="seed the PROJ-4421 silent-closure demo trace")
+    seed_parser.add_argument("--ticket", default="SCRUM-18")
+    seed_parser.add_argument("--store", default=".gommage/traces")
+
+    board_seed_parser = subparsers.add_parser("seed-board-demo", help="seed curated board-level demo traces")
+    board_seed_parser.add_argument("--store", default=".gommage/traces")
 
     replay_parser = subparsers.add_parser("replay", help="replay a stored run")
     replay_parser.add_argument("run_id")
@@ -56,6 +64,43 @@ def main() -> None:
         )
         path = LocalTraceStore(args.store).save(record)
         print(f"recorded {record.run_id} to {path}")
+        return
+
+    if args.command == "seed-proj-4421":
+        record = run_jira_triage(
+            args.ticket,
+            issue={
+                "ticket_id": args.ticket,
+                "summary": "PROJ-4421: Billing export request closed without customer response",
+                "description": (
+                    "Customer reported that a billing export support request was marked Done, "
+                    "but they never received a response or confirmation."
+                ),
+                "priority": "High",
+                "reporter": "customer@example.com",
+                "assignee": "Backend",
+                "owner": "backend-team@example.com",
+                "labels": ["billing-export", "customer-impact", "silent-closure"],
+                "status": "Done",
+                "issue_type": "Task",
+                "source": "jira",
+            },
+            agent_mode="demo",
+            tool_mode="demo",
+            write_policy="jira_only",
+            external_messages="dry_run",
+        )
+        path = LocalTraceStore(args.store).save(record)
+        print(f"seeded PROJ-4421 trace {record.run_id} to {path}")
+        print("Opening: A single Jira ticket. PROJ-4421. Status: Done. But the customer never got a response.")
+        return
+
+    if args.command == "seed-board-demo":
+        store = LocalTraceStore(args.store)
+        records = build_board_demo_traces()
+        for record in records:
+            path = store.save(record)
+            print(f"seeded {record.run_id} ({record.jira_ticket_id}) to {path}")
         return
 
     if args.command == "replay":
