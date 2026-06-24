@@ -272,6 +272,160 @@ pre {
   color: #626f86;
 }
 
+.viz-panel {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.viz-note {
+  color: #626f86;
+  font-size: 12px;
+  padding: 10px 12px 0;
+}
+
+.sankey-viz,
+.trace-viz {
+  display: block;
+  width: 100%;
+  max-height: 380px;
+  padding: 8px 10px 12px;
+}
+
+.sankey-links path {
+  fill: none;
+  stroke: #0c66e4;
+  stroke-linecap: round;
+  stroke-opacity: 0.22;
+}
+
+.sankey-links path:hover {
+  stroke-opacity: 0.48;
+}
+
+.sankey-nodes text {
+  fill: #172b4d;
+  font-size: 12px;
+  font-weight: 600;
+  dominant-baseline: middle;
+  pointer-events: none;
+}
+
+.viz-node {
+  stroke: #172b4d;
+  stroke-opacity: 0.18;
+  stroke-width: 1;
+}
+
+.viz-node.start,
+.viz-node.end {
+  fill: #172b4d;
+}
+
+.viz-node.llm {
+  fill: #ffab00;
+}
+
+.viz-node.tool {
+  fill: #36b37e;
+}
+
+.viz-node.observation,
+.viz-node.decision {
+  fill: #00b8d9;
+}
+
+.trace-viz {
+  max-height: 430px;
+  overflow: visible;
+}
+
+.lane-label {
+  fill: #626f86;
+  font-size: 12px;
+  font-weight: 700;
+  text-anchor: middle;
+  text-transform: uppercase;
+}
+
+.start-node {
+  fill: #172b4d;
+}
+
+.start-label {
+  fill: #ffffff;
+  font-size: 10px;
+  font-weight: 700;
+  text-anchor: middle;
+}
+
+.trace-edge {
+  fill: none;
+  stroke: #a6c5e229;
+  stroke-width: 3;
+  marker-end: url("#trace-arrow");
+}
+
+#trace-arrow path {
+  fill: #a6c5e2;
+}
+
+.replay-edge {
+  fill: none;
+  stroke: #f5cd47;
+  stroke-dasharray: 7 6;
+  stroke-linecap: round;
+  stroke-width: 3;
+}
+
+.trace-node {
+  cursor: pointer;
+}
+
+.trace-node rect,
+.replay-node rect {
+  fill: #ffffff;
+  stroke: #dfe1e6;
+  stroke-width: 1.5;
+}
+
+.trace-node.llm rect {
+  stroke: #ffab00;
+}
+
+.trace-node.tool rect {
+  stroke: #36b37e;
+}
+
+.trace-node.selected rect {
+  filter: drop-shadow(0 8px 16px rgba(12, 102, 228, 0.2));
+  stroke: #0c66e4;
+  stroke-width: 2.5;
+}
+
+.trace-kind {
+  fill: #626f86;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.trace-label,
+.replay-node text {
+  fill: #172b4d;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.replay-node .trace-label {
+  fill: #626f86;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.replay-node.blocked rect {
+  fill: #fff7d6;
+  stroke: #f5cd47;
+}
+
 @media (max-width: 980px) {
   .topbar {
     display: grid;
@@ -283,5 +437,10 @@ pre {
 
   .workspace {
     grid-template-columns: 1fr;
+  }
+
+  .sankey-viz,
+  .trace-viz {
+    max-height: 300px;
   }
 }

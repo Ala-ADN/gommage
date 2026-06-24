@@ -2,174 +2,676 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <title>Trace DAG Visualization</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Trace Inspector Replay</title>
     <script src="https://d3js.org/d3.v7.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/dagre/0.8.5/dagre.min.js"></script>
     <style>
+      :root {
+        color-scheme: light;
+        --bg: #f7f8fa;
+        --panel: #ffffff;
+        --ink: #172b4d;
+        --muted: #626f86;
+        --line: #dfe1e6;
+        --blue: #0c66e4;
+        --blue-soft: #e9f2ff;
+        --green: #216e4e;
+        --green-soft: #dcfff1;
+        --amber: #b38600;
+        --amber-soft: #fff7d6;
+        --red: #ae2e24;
+        --red-soft: #ffebe6;
+        --purple: #5e4db2;
+        --gray: #8590a2;
+        --gray-soft: #f1f2f4;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
       body {
-        font-family:
-          -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica,
-          Arial, sans-serif;
-        background-color: #f8f9fa;
+        background: var(--bg);
+        color: var(--ink);
+        font:
+          14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          Helvetica, Arial, sans-serif;
         margin: 0;
-        padding: 20px;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
       }
-      .header-bar {
-        display: flex;
-        gap: 15px;
-        align-items: center;
-        margin-bottom: 15px;
-      }
+
+      button,
       select {
-        padding: 6px 10px;
-        border-radius: 4px;
-        border: 1px solid #ced4da;
-        font-size: 14px;
+        font: inherit;
       }
-      #graph-container {
-        width: 900px;
-        height: 600px;
-        background: white;
-        border: 1px solid #dee2e6;
+
+      button {
+        cursor: pointer;
+      }
+
+      .app-shell {
+        display: grid;
+        gap: 14px;
+        margin: 0 auto;
+        max-width: 1440px;
+        padding: 16px;
+      }
+
+      .topbar,
+      .timeline-panel,
+      .graph-panel,
+      .inspector-panel {
+        background: var(--panel);
+        border: 1px solid var(--line);
         border-radius: 8px;
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
-        position: relative;
-        overflow: hidden;
-        cursor: grab;
       }
+
+      .topbar {
+        align-items: center;
+        display: flex;
+        gap: 16px;
+        justify-content: space-between;
+        min-height: 72px;
+        padding: 14px 16px;
+      }
+
+      h1,
+      h2,
+      h3,
+      p {
+        margin: 0;
+      }
+
+      h1 {
+        font-size: 22px;
+        letter-spacing: 0;
+      }
+
+      h2 {
+        font-size: 15px;
+        letter-spacing: 0;
+      }
+
+      h3 {
+        font-size: 13px;
+        letter-spacing: 0;
+      }
+
+      .status-line,
+      .meta,
+      .empty,
+      .panel-note {
+        color: var(--muted);
+      }
+
+      .header-bar {
+        align-items: center;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+
+      select {
+        background: #fff;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        color: var(--ink);
+        min-height: 36px;
+        min-width: 280px;
+        padding: 6px 10px;
+      }
+
+      .metric-strip {
+        display: grid;
+        gap: 1px;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        overflow: hidden;
+      }
+
+      .metric {
+        background: #fff;
+        display: grid;
+        gap: 2px;
+        min-width: 0;
+        padding: 10px 12px;
+      }
+
+      .metric span {
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .metric strong {
+        font-size: 17px;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .timeline-panel,
+      .graph-panel,
+      .inspector-panel {
+        overflow: hidden;
+      }
+
+      .panel-header {
+        align-items: center;
+        border-bottom: 1px solid var(--line);
+        display: flex;
+        gap: 14px;
+        justify-content: space-between;
+        min-height: 48px;
+        padding: 10px 12px;
+      }
+
+      .panel-note {
+        font-size: 12px;
+      }
+
+      .timeline-wrap {
+        overflow-x: auto;
+        padding: 12px;
+      }
+
+      #timeline {
+        display: flex;
+        gap: 8px;
+        min-height: 132px;
+        min-width: max-content;
+      }
+
+      .timeline-step {
+        background: #fff;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        color: var(--ink);
+        display: grid;
+        gap: 8px;
+        grid-template-rows: auto 16px auto;
+        min-height: 108px;
+        min-width: 154px;
+        padding: 10px;
+        text-align: left;
+        width: 154px;
+      }
+
+      .timeline-step:hover,
+      .timeline-step.selected {
+        border-color: var(--blue);
+        box-shadow: 0 0 0 1px var(--blue);
+      }
+
+      .timeline-title {
+        display: grid;
+        gap: 2px;
+        min-width: 0;
+      }
+
+      .timeline-title strong,
+      .timeline-title span {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .timeline-title strong {
+        font-size: 13px;
+      }
+
+      .timeline-title span,
+      .timeline-metrics {
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .latency-bar {
+        background: var(--gray-soft);
+        border-radius: 999px;
+        display: flex;
+        height: 16px;
+        overflow: hidden;
+        width: 100%;
+      }
+
+      .bar-segment {
+        min-width: 2px;
+      }
+
+      .bar-segment.llm {
+        background: var(--blue);
+      }
+
+      .bar-segment.tool {
+        background: var(--green);
+      }
+
+      .bar-segment.side-effect {
+        background: var(--amber);
+      }
+
+      .bar-segment.idle {
+        background: var(--gray);
+      }
+
+      .timeline-step.error .latency-bar {
+        outline: 2px solid var(--red);
+      }
+
+      .legend {
+        align-items: center;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+
+      .legend span {
+        align-items: center;
+        color: var(--muted);
+        display: inline-flex;
+        font-size: 12px;
+        gap: 5px;
+      }
+
+      .legend i {
+        border-radius: 99px;
+        display: inline-block;
+        height: 9px;
+        width: 18px;
+      }
+
+      .main-grid {
+        display: grid;
+        gap: 14px;
+        grid-template-columns: minmax(520px, 1fr) minmax(360px, 42%);
+      }
+
+      #graph-container {
+        background: white;
+        cursor: grab;
+        height: 620px;
+        overflow: hidden;
+        position: relative;
+        width: 100%;
+      }
+
       #graph-container:active {
         cursor: grabbing;
       }
+
       .node-rect {
-        stroke: #dee2e6;
-        stroke-width: 2px;
+        cursor: pointer;
         rx: 6px;
         ry: 6px;
-        cursor: pointer;
+        stroke: #dee2e6;
+        stroke-width: 2px;
         transition: all 0.2s;
       }
+
       .node:hover .node-rect,
-      .node.active .node-rect {
-        filter: drop-shadow(0 0 8px rgba(0, 123, 255, 0.6));
-        stroke: #0d6efd;
+      .node.active .node-rect,
+      .node.selected .node-rect {
+        filter: drop-shadow(0 0 8px rgba(12, 102, 228, 0.45));
+        stroke: var(--blue);
         stroke-width: 3px;
       }
+
+      .node.selected .node-rect {
+        fill: var(--blue-soft);
+      }
+
       .node-label {
+        dominant-baseline: central;
+        fill: #212529;
         font-size: 12px;
         font-weight: 500;
         pointer-events: none;
-        fill: #212529;
         text-anchor: middle;
-        dominant-baseline: central;
       }
+
       .node-type-label {
-        font-size: 9px;
-        font-weight: bold;
+        dominant-baseline: central;
         fill: #fff;
+        font-size: 9px;
+        font-weight: 700;
         pointer-events: none;
         text-anchor: middle;
-        dominant-baseline: central;
       }
+
       .link {
         fill: none;
+        marker-end: url(#arrow);
         stroke: #adb5bd;
         stroke-width: 2px;
-        marker-end: url(#arrow);
       }
+
       .evidence-link {
         fill: none;
-        stroke: #0dcaf0;
-        stroke-width: 1.5px;
-        stroke-dasharray: 5, 5;
         marker-end: url(#arrow-evidence);
+        stroke: #0dcaf0;
+        stroke-dasharray: 5, 5;
+        stroke-width: 1.5px;
       }
+
       .fork-link {
         fill: none;
-        stroke: #dc3545;
-        stroke-width: 2px;
-        stroke-dasharray: 4, 4;
         marker-end: url(#arrow-fork);
+        stroke: #dc3545;
+        stroke-dasharray: 4, 4;
+        stroke-width: 2px;
       }
+
       .tooltip {
+        background: rgba(33, 37, 41, 0.95);
+        border-radius: 4px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
+        color: #fff;
+        font-size: 12px;
+        margin-top: -10px;
+        opacity: 0;
+        padding: 10px 14px;
+        pointer-events: none;
         position: fixed;
         text-align: left;
-        padding: 10px 14px;
-        font-size: 12px;
-        background: rgba(33, 37, 41, 0.95);
-        color: #fff;
-        border-radius: 4px;
-        pointer-events: none;
-        opacity: 0;
-        transition: opacity 0.2s;
         transform: translate(-50%, -100%);
-        margin-top: -10px;
+        transition: opacity 0.2s;
         white-space: pre-wrap;
         z-index: 1000;
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
       }
+
       .zoom-controls {
-        position: absolute;
         bottom: 15px;
-        right: 15px;
         display: flex;
         flex-direction: column;
         gap: 5px;
+        position: absolute;
+        right: 15px;
       }
+
       .zoom-controls button {
         background: white;
         border: 1px solid #dee2e6;
         border-radius: 4px;
-        width: 30px;
-        height: 30px;
-        cursor: pointer;
-        font-weight: bold;
         color: #495057;
+        font-weight: 700;
+        height: 30px;
+        width: 30px;
       }
+
       .zoom-controls button:hover {
         background: #e9ecef;
+      }
+
+      .inspector-body {
+        display: grid;
+        gap: 12px;
+        max-height: 620px;
+        overflow: auto;
+        padding: 12px;
+      }
+
+      .detail-card {
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        display: grid;
+        gap: 10px;
+        padding: 12px;
+      }
+
+      .detail-heading {
+        align-items: start;
+        display: flex;
+        gap: 10px;
+        justify-content: space-between;
+      }
+
+      .badges {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+
+      .badge {
+        background: var(--gray-soft);
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        color: var(--muted);
+        display: inline-flex;
+        font-size: 12px;
+        line-height: 20px;
+        padding: 0 8px;
+      }
+
+      .badge.blue {
+        background: var(--blue-soft);
+        border-color: #85b8ff;
+        color: var(--blue);
+      }
+
+      .badge.green {
+        background: var(--green-soft);
+        border-color: #7ee2b8;
+        color: var(--green);
+      }
+
+      .badge.yellow {
+        background: var(--amber-soft);
+        border-color: #f5cd47;
+        color: var(--amber);
+      }
+
+      .badge.red {
+        background: var(--red-soft);
+        border-color: #ff8f73;
+        color: var(--red);
+      }
+
+      details {
+        border-top: 1px solid var(--line);
+        padding-top: 8px;
+      }
+
+      summary {
+        cursor: pointer;
+        font-weight: 600;
+      }
+
+      pre {
+        background: #0b1020;
+        border-radius: 6px;
+        color: #eef4ff;
+        margin: 8px 0 0;
+        max-height: 260px;
+        overflow: auto;
+        padding: 10px;
+        white-space: pre-wrap;
+      }
+
+      .diff-view {
+        background: #0b1020;
+        border-radius: 6px;
+        color: #eef4ff;
+        font-family:
+          ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        font-size: 12px;
+        line-height: 1.5;
+        max-height: 360px;
+        overflow: auto;
+        padding: 10px 0;
+      }
+
+      .diff-line {
+        display: block;
+        min-height: 18px;
+        padding: 0 10px;
+        white-space: pre;
+      }
+
+      .diff-line.add {
+        background: rgba(33, 110, 78, 0.35);
+        color: #baf3db;
+      }
+
+      .diff-line.remove {
+        background: rgba(174, 46, 36, 0.35);
+        color: #ffd2cc;
+      }
+
+      .empty {
+        padding: 12px;
+      }
+
+      @media (max-width: 980px) {
+        .topbar,
+        .main-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .topbar {
+          align-items: stretch;
+          display: grid;
+        }
+
+        .metric-strip {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        select {
+          min-width: 0;
+          width: 100%;
+        }
       }
     </style>
   </head>
   <body>
-    <h2>Single Trace DAG (Dagre)</h2>
-    <div class="header-bar">
-      <label for="trace-select"><strong>Select Trace:</strong></label>
-      <select id="trace-select">
-        <option value="">Loading...</option>
-      </select>
-    </div>
-    <p>
-      Solid: Sequence | Dashed Cyan: Data Dependency | Red: Fork Branch. Pan and
-      Zoom supported.
-    </p>
-    <div id="graph-container">
-      <div id="tooltip" class="tooltip"></div>
-      <div class="zoom-controls">
-        <button id="zoom-in">+</button>
-        <button id="zoom-out">-</button>
-        <button id="zoom-reset">⟲</button>
-      </div>
-    </div>
+    <main class="app-shell">
+      <header class="topbar">
+        <div>
+          <h1>Trace Inspector Replay</h1>
+          <p id="status-line" class="status-line">Loading traces</p>
+        </div>
+        <div class="header-bar">
+          <label for="trace-select"><strong>Select trace</strong></label>
+          <select id="trace-select">
+            <option value="">Loading...</option>
+          </select>
+        </div>
+      </header>
+
+      <section class="metric-strip" aria-label="Trace latency summary">
+        <div class="metric">
+          <span>Run</span>
+          <strong id="metric-run">None</strong>
+        </div>
+        <div class="metric">
+          <span>Steps</span>
+          <strong id="metric-steps">0</strong>
+        </div>
+        <div class="metric">
+          <span>LLM time</span>
+          <strong id="metric-llm">0ms</strong>
+        </div>
+        <div class="metric">
+          <span>Tool time</span>
+          <strong id="metric-tool">0ms</strong>
+        </div>
+        <div class="metric">
+          <span>Idle time</span>
+          <strong id="metric-idle">0ms</strong>
+        </div>
+      </section>
+
+      <section class="timeline-panel">
+        <header class="panel-header">
+          <div>
+            <h2>Step timeline</h2>
+            <p id="timeline-note" class="panel-note">
+              LLM think-time, tool execution, and idle time per step.
+            </p>
+          </div>
+          <div class="legend" aria-label="Timeline legend">
+            <span><i style="background: var(--blue)"></i>LLM</span>
+            <span><i style="background: var(--green)"></i>Tool</span>
+            <span><i style="background: var(--amber)"></i>Side effect</span>
+            <span><i style="background: var(--gray)"></i>Idle</span>
+          </div>
+        </header>
+        <div class="timeline-wrap">
+          <div id="timeline"></div>
+        </div>
+      </section>
+
+      <section class="main-grid">
+        <section class="graph-panel">
+          <header class="panel-header">
+            <div>
+              <h2>Trace DAG</h2>
+              <p class="panel-note">
+                Solid: sequence. Dashed cyan: evidence dependency. Red: fork branch.
+              </p>
+            </div>
+          </header>
+          <div id="graph-container">
+            <div id="tooltip" class="tooltip"></div>
+            <div class="zoom-controls">
+              <button id="zoom-in" type="button" aria-label="Zoom in">+</button>
+              <button id="zoom-out" type="button" aria-label="Zoom out">-</button>
+              <button id="zoom-reset" type="button" aria-label="Reset zoom">R</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="inspector-panel">
+          <header class="panel-header">
+            <div>
+              <h2>Step inspector</h2>
+              <p id="selected-label" class="panel-note">No step selected.</p>
+            </div>
+          </header>
+          <div id="inspector-body" class="inspector-body">
+            <p class="empty">Select a trace step from the timeline or graph.</p>
+          </div>
+        </section>
+      </section>
+    </main>
 
     <script>
-      const width = 900;
-      const height = 600;
+      const width = 920;
+      const height = 620;
+      const state = {
+        record: null,
+        steps: [],
+        selectedStepId: null,
+        graphNodeIds: new Set(),
+      };
+
+      const els = {
+        status: document.querySelector("#status-line"),
+        select: document.querySelector("#trace-select"),
+        timeline: document.querySelector("#timeline"),
+        timelineNote: document.querySelector("#timeline-note"),
+        selectedLabel: document.querySelector("#selected-label"),
+        inspector: document.querySelector("#inspector-body"),
+        metricRun: document.querySelector("#metric-run"),
+        metricSteps: document.querySelector("#metric-steps"),
+        metricLlm: document.querySelector("#metric-llm"),
+        metricTool: document.querySelector("#metric-tool"),
+        metricIdle: document.querySelector("#metric-idle"),
+      };
+
       const container = d3.select("#graph-container");
       const tooltip = d3.select("#tooltip");
-
       const svg = container
         .append("svg")
-        .attr("width", width)
-        .attr("height", height);
+        .attr("width", "100%")
+        .attr("height", height)
+        .attr("viewBox", `0 0 ${width} ${height}`);
 
       const zoom = d3
         .zoom()
         .scaleExtent([0.1, 4])
-        .on("zoom", (e) => {
-          gMain.attr("transform", e.transform);
+        .on("zoom", (event) => {
+          gMain.attr("transform", event.transform);
         });
 
       svg.call(zoom);
@@ -185,6 +687,7 @@
       );
 
       const defs = svg.append("defs");
+      const gMain = svg.append("g");
 
       function createMarker(id, color) {
         defs
@@ -205,55 +708,146 @@
       createMarker("arrow-evidence", "#0dcaf0");
       createMarker("arrow-fork", "#dc3545");
 
-      const gMain = svg.append("g");
-
       const colorScale = d3
         .scaleOrdinal()
         .domain(["tool", "llm", "observation", "decision", "start", "fork"])
         .range([
           "#20c997",
-          "#fd7e14",
+          "#0c66e4",
           "#6c757d",
           "#0dcaf0",
           "#343a40",
           "#dc3545",
         ]);
 
-      async function loadDropdown() {
-        const res = await fetch("/api/runs");
-        const data = await res.json();
-        const select = document.getElementById("trace-select");
-        select.innerHTML = "";
-
-        let validRuns = data.runs.filter((r) => !r.error);
-        if (validRuns.length === 0) {
-          select.innerHTML = "<option>No traces available</option>";
-          return;
+      async function requestJson(path) {
+        const response = await fetch(path);
+        if (!response.ok) {
+          const text = await response.text();
+          throw new Error(text || `${response.status} ${response.statusText}`);
         }
+        return response.json();
+      }
 
-        validRuns.forEach((run) => {
-          const option = document.createElement("option");
-          option.value = run.run_id;
-          option.textContent = `${run.run_id} (${run.ticket_id}) - ${run.steps} steps`;
-          select.appendChild(option);
-        });
+      async function loadDropdown() {
+        try {
+          const data = await requestJson("/api/runs");
+          const validRuns = data.runs.filter((run) => !run.error);
+          els.select.innerHTML = "";
 
-        loadTrace(validRuns[0].run_id);
+          if (validRuns.length === 0) {
+            els.select.innerHTML = "<option>No traces available</option>";
+            setStatus("No traces available");
+            return;
+          }
 
-        select.addEventListener("change", (e) => {
-          loadTrace(e.target.value);
-        });
+          validRuns.forEach((run) => {
+            const option = document.createElement("option");
+            option.value = run.run_id;
+            option.textContent = `${run.run_id} (${run.ticket_id}) - ${run.steps} steps`;
+            els.select.appendChild(option);
+          });
+
+          els.select.addEventListener("change", (event) => {
+            loadTrace(event.target.value);
+          });
+
+          await loadTrace(validRuns[0].run_id);
+        } catch (error) {
+          setStatus(error.message, true);
+        }
       }
 
       async function loadTrace(runId) {
         if (!runId) return;
-        const res = await fetch(`/api/runs/${runId}`);
-        const data = await res.json();
-        renderGraph(data.record.steps);
+        setStatus(`Loading ${runId}`);
+        try {
+          const data = await requestJson(`/api/runs/${encodeURIComponent(runId)}`);
+          state.record = data.record;
+          state.steps = data.record.steps || [];
+          state.selectedStepId = state.steps[0]?.step_id ?? null;
+          render();
+          setStatus(`Loaded ${runId}`);
+        } catch (error) {
+          setStatus(error.message, true);
+        }
+      }
+
+      function render() {
+        renderMetrics();
+        renderTimeline();
+        renderGraph(state.steps);
+        renderInspector();
+        updateSelection();
+      }
+
+      function setStatus(message, isError = false) {
+        els.status.textContent = message;
+        els.status.style.color = isError ? "var(--red)" : "";
+      }
+
+      function renderMetrics() {
+        const timings = state.steps.map(stepTiming);
+        const llm = sum(timings, "llmMs");
+        const tool = sum(timings, "toolMs");
+        const idle = sum(timings, "idleMs");
+        els.metricRun.textContent = state.record?.run_id || "None";
+        els.metricSteps.textContent = String(state.steps.length);
+        els.metricLlm.textContent = formatMs(llm);
+        els.metricTool.textContent = formatMs(tool);
+        els.metricIdle.textContent = formatMs(idle);
+
+        const hasTimestampGap = timings.some((timing) => timing.timestampGapMs > 0);
+        els.timelineNote.textContent = hasTimestampGap
+          ? "LLM think-time, tool execution, and idle time per step."
+          : "Idle unavailable for this trace because timestamps are missing or too coarse.";
+      }
+
+      function renderTimeline() {
+        els.timeline.replaceChildren();
+        if (!state.steps.length) {
+          els.timeline.innerHTML = '<p class="empty">No steps in this trace.</p>';
+          return;
+        }
+
+        const timings = state.steps.map(stepTiming);
+        const maxTotal = Math.max(
+          1,
+          ...timings.map((timing) => timing.llmMs + timing.toolMs + timing.idleMs),
+        );
+
+        state.steps.forEach((step, index) => {
+          const timing = timings[index];
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = `timeline-step ${step.tool?.error ? "error" : ""}`;
+          button.dataset.stepId = String(step.step_id);
+          button.innerHTML = `
+            <span class="timeline-title">
+              <strong>#${step.step_id} ${escapeHtml(step.intent || step.kind)}</strong>
+              <span>${escapeHtml(stepLabel(step))}</span>
+            </span>
+            <span class="latency-bar" aria-label="${escapeHtml(timingLabel(timing))}">
+              ${renderBarSegment("llm", timing.llmMs, maxTotal)}
+              ${renderBarSegment(step.tool?.side_effecting ? "side-effect" : "tool", timing.toolMs, maxTotal)}
+              ${renderBarSegment("idle", timing.idleMs, maxTotal)}
+            </span>
+            <span class="timeline-metrics">${escapeHtml(timingLabel(timing))}</span>
+          `;
+          button.addEventListener("click", () => selectStep(step.step_id));
+          els.timeline.append(button);
+        });
+      }
+
+      function renderBarSegment(className, value, maxTotal) {
+        if (!value) return "";
+        const width = Math.max(3, (value / maxTotal) * 100);
+        return `<span class="bar-segment ${className}" style="width:${width}%"></span>`;
       }
 
       function renderGraph(steps) {
         gMain.selectAll("*").remove();
+        state.graphNodeIds = new Set();
         if (!steps || steps.length === 0) return;
 
         const g = new dagre.graphlib.Graph();
@@ -266,9 +860,8 @@
         });
         g.setDefaultEdgeLabel(() => ({}));
 
-        // Map steps to nodes
-        const nodeWidth = 140;
-        const nodeHeight = 50;
+        const nodeWidth = 150;
+        const nodeHeight = 54;
 
         g.setNode("start", {
           id: "start",
@@ -281,29 +874,28 @@
           ry: 20,
         });
 
-        steps.forEach((s) => {
-          const latency =
-            (s.tool && s.tool.latency_ms) || (s.llm && s.llm.latency_ms) || 0;
-          let lbl = s.intent || s.kind;
-          if (lbl.length > 20) lbl = lbl.substring(0, 17) + "...";
+        steps.forEach((step) => {
+          const timing = stepTiming(step);
+          const label = truncate(step.intent || stepLabel(step) || step.kind, 22);
+          const nodeId = String(step.step_id);
+          state.graphNodeIds.add(nodeId);
 
-          g.setNode(s.step_id.toString(), {
-            id: s.step_id.toString(),
-            label: lbl,
-            type: s.kind,
-            latency: latency,
-            tool_name: s.tool ? s.tool.tool_name : null,
-            error: s.tool ? s.tool.error : null,
+          g.setNode(nodeId, {
+            id: nodeId,
+            label,
+            type: step.kind,
+            latency: timing.llmMs + timing.toolMs,
+            tool_name: step.tool ? step.tool.tool_name : null,
+            error: step.tool ? step.tool.error : null,
             width: nodeWidth,
             height: nodeHeight,
-            fullData: s,
+            fullData: step,
           });
         });
 
-        // Simulated fork step for rendering requirement
         const lastStep = steps[steps.length - 1];
         if (lastStep && lastStep.step_id > 2) {
-          const divId = "div_" + lastStep.step_id;
+          const divId = `div_${lastStep.step_id}`;
           g.setNode(divId, {
             id: divId,
             label: "Mock Fork Edit",
@@ -319,79 +911,72 @@
           });
         }
 
-        // Link from START
         g.setEdge("start", steps[0].step_id.toString(), {
           edgeType: "sequence",
         });
 
-        // Sequence Links
         for (let i = 0; i < steps.length - 1; i++) {
-          g.setEdge(
-            steps[i].step_id.toString(),
-            steps[i + 1].step_id.toString(),
-            { edgeType: "sequence" },
-          );
+          g.setEdge(steps[i].step_id.toString(), steps[i + 1].step_id.toString(), {
+            edgeType: "sequence",
+          });
         }
 
-        // Evidence Links
         steps.forEach((step) => {
-          if (step.evidence && step.evidence.length > 0) {
-            step.evidence.forEach((ev) => {
-              if (ev.source && ev.source.startsWith("step:")) {
-                const srcId = ev.source.split(":")[1];
-                if (!g.hasEdge(srcId, step.step_id.toString())) {
-                  g.setEdge(srcId, step.step_id.toString(), {
-                    edgeType: "evidence",
-                  });
-                }
+          (step.evidence || []).forEach((evidence) => {
+            if (evidence.source && evidence.source.startsWith("step:")) {
+              const srcId = evidence.source.split(":")[1];
+              if (!g.hasEdge(srcId, step.step_id.toString())) {
+                g.setEdge(srcId, step.step_id.toString(), {
+                  edgeType: "evidence",
+                });
               }
-            });
-          }
+            }
+          });
         });
 
-        // Calculate layout
         dagre.layout(g);
 
-        // Render Edges
         const line = d3
           .line()
-          .x((d) => d.x)
-          .y((d) => d.y);
+          .x((point) => point.x)
+          .y((point) => point.y);
 
-        g.edges().forEach((e) => {
-          const edgeData = g.edge(e);
+        g.edges().forEach((edge) => {
+          const edgeData = g.edge(edge);
           let className = "link";
           if (edgeData.edgeType === "evidence") className = "evidence-link";
           if (edgeData.edgeType === "fork") className = "fork-link";
 
-          gMain
-            .append("path")
-            .attr("class", className)
-            .attr("d", line(edgeData.points));
+          gMain.append("path").attr("class", className).attr("d", line(edgeData.points));
         });
 
-        // Render Nodes
-        g.nodes().forEach((v) => {
-          const nodeData = g.node(v);
+        g.nodes().forEach((value) => {
+          const nodeData = g.node(value);
           const group = gMain
             .append("g")
             .attr("class", "node")
+            .attr("data-node-id", nodeData.id)
             .attr("transform", `translate(${nodeData.x},${nodeData.y})`)
             .style("opacity", nodeData.type === "fork" ? 0.8 : 1)
+            .on("click", function () {
+              if (state.graphNodeIds.has(nodeData.id)) {
+                selectStep(Number(nodeData.id));
+              }
+            })
             .on("mouseover", function (event) {
               d3.select(this).classed("active", true);
-              let details = `<strong>${nodeData.label}</strong>\nType: ${nodeData.type}\nLatency: ${nodeData.latency}ms`;
-              if (nodeData.tool_name)
-                details += `\nTool: ${nodeData.tool_name}`;
+              let details = `<strong>${nodeData.label}</strong>\nType: ${nodeData.type}\nLatency: ${formatMs(nodeData.latency)}`;
+              if (nodeData.tool_name) details += `\nTool: ${nodeData.tool_name}`;
               if (nodeData.error) details += `\nError: ${nodeData.error}`;
-              if (nodeData.type === "fork")
+              if (nodeData.type === "fork") {
                 details = `<strong>${nodeData.label}</strong>\n${nodeData.fullData.note}`;
+              }
 
               tooltip
                 .style("opacity", 1)
                 .html(details)
-                .style("left", event.clientX + "px")
-                .style("top", event.clientY + "px");
+                .style("left", `${event.clientX}px`)
+                .style("top", `${event.clientY}px`);
             })
             .on("mouseout", function () {
               d3.select(this).classed("active", false);
@@ -407,30 +992,23 @@
             .attr("height", nodeData.height)
             .attr("rx", nodeData.rx || 6)
             .attr("ry", nodeData.ry || 6)
-            .attr("fill", nodeData.error ? "#f8d7da" : "#ffffff")
-            .style(
-              "stroke",
-              nodeData.error ? "#dc3545" : colorScale(nodeData.type),
-            )
+            .attr("fill", nodeData.error ? "#ffebe6" : "#ffffff")
+            .style("stroke", nodeData.error ? "#dc3545" : colorScale(nodeData.type))
             .style("stroke-dasharray", nodeData.type === "fork" ? "6,6" : null);
 
-          // Background for node type tag
           if (nodeData.type !== "start") {
             group
               .append("path")
               .attr(
                 "d",
-                `M ${-nodeData.width / 2},${-nodeData.height / 2} l 40,0 l 10,18 l -50,0 Z`,
+                `M ${-nodeData.width / 2},${-nodeData.height / 2} l 42,0 l 10,18 l -52,0 Z`,
               )
-              .attr(
-                "fill",
-                nodeData.error ? "#dc3545" : colorScale(nodeData.type),
-              );
+              .attr("fill", nodeData.error ? "#dc3545" : colorScale(nodeData.type));
 
             group
               .append("text")
               .attr("class", "node-type-label")
-              .attr("x", -nodeData.width / 2 + 20)
+              .attr("x", -nodeData.width / 2 + 21)
               .attr("y", -nodeData.height / 2 + 8)
               .text(nodeData.type.toUpperCase());
           }
@@ -439,15 +1017,13 @@
             .append("text")
             .attr("class", "node-label")
             .attr("x", 0)
-            .attr("y", nodeData.type === "start" ? 0 : 5)
+            .attr("y", nodeData.type === "start" ? 0 : 6)
             .text(nodeData.label);
         });
 
-        // Auto-center graph
-        const graphWidth = g.graph().width;
-        const graphHeight = g.graph().height;
-        const initialScale =
-          Math.min(width / graphWidth, height / graphHeight) * 0.9;
+        const graphWidth = Math.max(1, g.graph().width || width);
+        const graphHeight = Math.max(1, g.graph().height || height);
+        const initialScale = Math.min(width / graphWidth, height / graphHeight) * 0.9;
         const xCenterOffset = (width - graphWidth * initialScale) / 2;
         const yCenterOffset = (height - graphHeight * initialScale) / 2;
 
@@ -458,6 +1034,245 @@
             .scale(initialScale),
         );
       }
+
+      function renderInspector() {
+        const step = selectedStep();
+        if (!step) {
+          els.selectedLabel.textContent = "No step selected.";
+          els.inspector.innerHTML = '<p class="empty">Select a trace step from the timeline or graph.</p>';
+          return;
+        }
+
+        const timing = stepTiming(step);
+        const previousStep = previousSelectedStep();
+        const diffLines = diffContexts(previousStep?.context || {}, step.context || {});
+        els.selectedLabel.textContent = `Step ${step.step_id} - ${stepLabel(step)}`;
+
+        els.inspector.innerHTML = `
+          <section class="detail-card">
+            <div class="detail-heading">
+              <div>
+                <h3>#${step.step_id} ${escapeHtml(step.intent || step.kind)}</h3>
+                <p class="meta">${escapeHtml(stepLabel(step))}</p>
+              </div>
+              <div class="badges">
+                <span class="badge blue">${escapeHtml(step.kind)}</span>
+                ${step.tool?.side_effecting ? '<span class="badge yellow">side effect</span>' : ""}
+                ${step.tool?.error ? '<span class="badge red">error</span>' : ""}
+              </div>
+            </div>
+            <div class="badges">
+              <span class="badge">LLM ${formatMs(timing.llmMs)}</span>
+              <span class="badge">Tool ${formatMs(timing.toolMs)}</span>
+              <span class="badge">Idle ${formatMs(timing.idleMs)}</span>
+            </div>
+            ${step.observation ? `<p><strong>Observation:</strong> ${escapeHtml(step.observation)}</p>` : ""}
+            ${step.inference ? `<p><strong>Inference:</strong> ${escapeHtml(step.inference)}</p>` : ""}
+            ${renderPayloadDetails(step)}
+          </section>
+          <section class="detail-card">
+            <h3>Context diff: ${previousStep ? `Step ${previousStep.step_id} -> Step ${step.step_id}` : `Start -> Step ${step.step_id}`}</h3>
+            ${diffLines.length ? `<div class="diff-view">${diffLines.map(renderDiffLine).join("")}</div>` : '<p class="empty">No context changes recorded for this step.</p>'}
+          </section>
+        `;
+      }
+
+      function renderPayloadDetails(step) {
+        if (step.llm) {
+          return `
+            <details>
+              <summary>System message</summary>
+              <pre>${escapeHtml(step.llm.system_message || "")}</pre>
+            </details>
+            <details>
+              <summary>Prompt</summary>
+              <pre>${escapeHtml(step.llm.prompt || "")}</pre>
+            </details>
+            <details>
+              <summary>Recorded response</summary>
+              <pre>${escapeHtml(step.llm.response || "")}</pre>
+            </details>
+          `;
+        }
+
+        if (step.tool) {
+          return `
+            <details>
+              <summary>Parameters</summary>
+              <pre>${escapeHtml(stableStringify(step.tool.parameters || {}))}</pre>
+            </details>
+            <details>
+              <summary>Recorded result</summary>
+              <pre>${escapeHtml(stableStringify(step.tool.result))}</pre>
+            </details>
+          `;
+        }
+
+        return `
+          <details>
+            <summary>Step payload</summary>
+            <pre>${escapeHtml(stableStringify(step))}</pre>
+          </details>
+        `;
+      }
+
+      function selectStep(stepId) {
+        state.selectedStepId = stepId;
+        renderInspector();
+        updateSelection();
+      }
+
+      function updateSelection() {
+        const selected = String(state.selectedStepId ?? "");
+        document.querySelectorAll(".timeline-step").forEach((item) => {
+          item.classList.toggle("selected", item.dataset.stepId === selected);
+        });
+        d3.selectAll(".node").classed("selected", function () {
+          return d3.select(this).attr("data-node-id") === selected;
+        });
+
+        const timelineStep = document.querySelector(
+          `.timeline-step[data-step-id="${CSS.escape(selected)}"]`,
+        );
+        if (timelineStep) {
+          timelineStep.scrollIntoView({
+            block: "nearest",
+            inline: "nearest",
+            behavior: "smooth",
+          });
+        }
+      }
+
+      function selectedStep() {
+        return state.steps.find((step) => step.step_id === state.selectedStepId);
+      }
+
+      function previousSelectedStep() {
+        const index = state.steps.findIndex((step) => step.step_id === state.selectedStepId);
+        return index > 0 ? state.steps[index - 1] : null;
+      }
+
+      function stepTiming(step) {
+        const index = state.steps.findIndex((item) => item.step_id === step.step_id);
+        const nextStep = index >= 0 ? state.steps[index + 1] : null;
+        const llmMs = Number(step.llm?.latency_ms || 0);
+        const toolMs = Number(step.tool?.latency_ms || 0);
+        const timestampGapMs = timestampDiffMs(step.timestamp, nextStep?.timestamp);
+        const activeMs = llmMs + toolMs;
+        const idleMs = Math.max(0, timestampGapMs - activeMs);
+        return { llmMs, toolMs, idleMs, timestampGapMs };
+      }
+
+      function timestampDiffMs(start, end) {
+        if (!start || !end) return 0;
+        const startMs = Date.parse(start);
+        const endMs = Date.parse(end);
+        if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) return 0;
+        return Math.max(0, endMs - startMs);
+      }
+
+      function timingLabel(timing) {
+        return `LLM ${formatMs(timing.llmMs)} - Tool ${formatMs(timing.toolMs)} - Idle ${formatMs(timing.idleMs)}`;
+      }
+
+      function stepLabel(step) {
+        if (step.tool) return step.tool.tool_name;
+        if (step.llm) return step.llm.model;
+        return step.kind;
+      }
+
+      function diffContexts(before, after) {
+        const lines = [];
+        walkDiff("", before || {}, after || {}, lines);
+        return lines;
+      }
+
+      function walkDiff(path, before, after, lines) {
+        if (stableStringify(before) === stableStringify(after)) return;
+        if (isPlainObject(before) && isPlainObject(after)) {
+          const keys = Array.from(new Set([...Object.keys(before), ...Object.keys(after)])).sort();
+          keys.forEach((key) => {
+            const nextPath = path ? `${path}.${key}` : key;
+            if (!(key in after)) {
+              lines.push({ type: "remove", text: `- ${nextPath}: ${inlineValue(before[key])}` });
+            } else if (!(key in before)) {
+              lines.push({ type: "add", text: `+ ${nextPath}: ${inlineValue(after[key])}` });
+            } else {
+              walkDiff(nextPath, before[key], after[key], lines);
+            }
+          });
+          return;
+        }
+
+        lines.push({ type: "remove", text: `- ${path || "context"}: ${inlineValue(before)}` });
+        lines.push({ type: "add", text: `+ ${path || "context"}: ${inlineValue(after)}` });
+      }
+
+      function renderDiffLine(line) {
+        const className = line.type === "add" ? "add" : "remove";
+        return `<span class="diff-line ${className}">${escapeHtml(line.text)}</span>`;
+      }
+
+      function isPlainObject(value) {
+        return value !== null && typeof value === "object" && !Array.isArray(value);
+      }
+
+      function inlineValue(value) {
+        const text = stableStringify(value);
+        return text.length > 180 ? `${text.slice(0, 177)}...` : text;
+      }
+
+      function stableStringify(value) {
+        return JSON.stringify(sortJson(value), null, 2);
+      }
+
+      function sortJson(value) {
+        if (Array.isArray(value)) return value.map(sortJson);
+        if (isPlainObject(value)) {
+          return Object.keys(value)
+            .sort()
+            .reduce((acc, key) => {
+              acc[key] = sortJson(value[key]);
+              return acc;
+            }, {});
+        }
+        return value;
+      }
+
+      function sum(items, key) {
+        return items.reduce((total, item) => total + item[key], 0);
+      }
+
+      function formatMs(value) {
+        const ms = Number(value || 0);
+        if (ms >= 1000) return `${(ms / 1000).toFixed(ms >= 10000 ? 0 : 1)}s`;
+        return `${Math.round(ms)}ms`;
+      }
+
+      function truncate(value, maxLength) {
+        const text = String(value || "");
+        return text.length > maxLength ? `${text.slice(0, maxLength - 3)}...` : text;
+      }
+
+      function escapeHtml(value) {
+        return String(value ?? "")
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#039;");
+      }
+
+      document.addEventListener("keydown", (event) => {
+        if (!state.steps.length) return;
+        const index = state.steps.findIndex((step) => step.step_id === state.selectedStepId);
+        if (event.key === "ArrowRight" && index < state.steps.length - 1) {
+          selectStep(state.steps[index + 1].step_id);
+        }
+        if (event.key === "ArrowLeft" && index > 0) {
+          selectStep(state.steps[index - 1].step_id);
+        }
+      });
 
       loadDropdown();
     </script>

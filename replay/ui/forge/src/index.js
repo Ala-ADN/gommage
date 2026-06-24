@@ -290,6 +290,7 @@ resolver.define("recordRun", async ({ payload, context }) => {
       tool_mode: "live",
       write_policy: "jira_only",
       external_messages: "dry_run",
+      max_steps: 6,
     }),
   });
   const warnings = [];

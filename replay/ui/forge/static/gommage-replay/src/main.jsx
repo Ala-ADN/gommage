@@ -41,6 +41,66 @@ function stepLabel(step) {
   return step.tool?.tool_name || step.llm?.model || step.kind;
 }
 
+function flowNodeKey(step, depth) {
+  if (step.kind === "tool" && step.tool) {
+    return `${depth}:tool:${step.tool.tool_name}`;
+  }
+  if (step.kind === "llm") {
+    return `${depth}:llm:${step.intent || step.llm?.model || "LLM"}`;
+  }
+  return `${depth}:${step.kind}:${step.intent || step.kind}`;
+}
+
+function shortLabel(value, max = 24) {
+  if (!value) return "";
+  return value.length > max ? `${value.slice(0, max - 1)}…` : value;
+}
+
+function buildSankey(records) {
+  const nodes = new Map();
+  const links = new Map();
+  let maxDepth = 1;
+
+  function touchNode(id, label, depth, kind) {
+    const existing = nodes.get(id) || { id, label, depth, kind, value: 0 };
+    existing.value += 1;
+    nodes.set(id, existing);
+    maxDepth = Math.max(maxDepth, depth);
+    return existing;
+  }
+
+  records.forEach((record) => {
+    if (!record?.steps?.length) return;
+    touchNode("0:start", "START", 0, "start");
+    let previous = "0:start";
+
+    record.steps.forEach((step, index) => {
+      const depth = index + 1;
+      const id = flowNodeKey(step, depth);
+      const label = step.tool?.tool_name || step.intent || step.kind;
+      touchNode(id, label, depth, step.kind);
+      const linkKey = `${previous}->${id}`;
+      links.set(linkKey, {
+        source: previous,
+        target: id,
+        value: (links.get(linkKey)?.value || 0) + 1,
+      });
+      previous = id;
+    });
+
+    const endId = `${record.steps.length + 1}:end`;
+    touchNode(endId, "END", record.steps.length + 1, "end");
+    const linkKey = `${previous}->${endId}`;
+    links.set(linkKey, {
+      source: previous,
+      target: endId,
+      value: (links.get(linkKey)?.value || 0) + 1,
+    });
+  });
+
+  return { nodes: Array.from(nodes.values()), links: Array.from(links.values()), maxDepth };
+}
+
 function App() {
   const [ticketScope, setTicketScope] = useState("");
   const [status, setStatus] = useState("Loading Jira context");
@@ -55,6 +115,7 @@ function App() {
   const [edits, setEdits] = useState(new Map());
   const [fixSummary, setFixSummary] = useState("");
   const [rawForgeContext, setRawForgeContext] = useState(null);
+  const [aggregateRecords, setAggregateRecords] = useState([]);
 
   const selectedStep = useMemo(
     () => record?.steps.find((step) => step.step_id === selectedStepId),
@@ -208,6 +269,30 @@ function App() {
     });
   }, []);
 
+  useEffect(() => {
+    if (isIssueContext || !runs.length) {
+      setAggregateRecords([]);
+      return;
+    }
+
+    let cancelled = false;
+    guarded(async () => {
+      const records = await Promise.all(
+        runs
+          .filter((run) => !run.error)
+          .slice(0, 20)
+          .map((run) => invoke("getRun", { runId: run.run_id }).then((data) => data.record)),
+      );
+      if (!cancelled) {
+        setAggregateRecords(records.filter(Boolean));
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isIssueContext, runs]);
+
   const sideEffects = record?.steps.filter((step) => step.tool?.side_effecting).length || 0;
   const replayStep = selectedStep
     ? replay?.replayed_steps?.find((step) => step.step_id === selectedStep.step_id)
@@ -267,6 +352,17 @@ function App() {
         <Metric label="RFS" value={formatMetric(metrics?.replay_fidelity)} />
         <Metric label="MRR" value={formatMetric(metrics?.mock_recall)} />
       </section>
+
+      {!isIssueContext ? (
+        <SankeyPanel records={aggregateRecords} runCount={runs.length} />
+      ) : record ? (
+        <TraceGraphPanel
+          record={record}
+          replay={replay}
+          selectedStepId={selectedStepId}
+          onSelectStep={setSelectedStepId}
+        />
+      ) : null}
 
       <section className="workspace">
         <aside className="panel">
@@ -353,6 +449,148 @@ function App() {
         </section>
       </section>
     </main>
+  );
+}
+
+function SankeyPanel({ records, runCount }) {
+  const sankey = useMemo(() => buildSankey(records), [records]);
+  const width = 920;
+  const height = 310;
+  const margin = 28;
+  const nodeWidth = 14;
+  const columns = new Map();
+
+  sankey.nodes.forEach((node) => {
+    const list = columns.get(node.depth) || [];
+    list.push(node);
+    columns.set(node.depth, list);
+  });
+
+  const positioned = new Map();
+  columns.forEach((column, depth) => {
+    const total = column.reduce((sum, node) => sum + node.value, 0) || 1;
+    const gap = 12;
+    const usableHeight = height - margin * 2 - gap * Math.max(0, column.length - 1);
+    let y = margin;
+    column
+      .sort((a, b) => b.value - a.value || a.label.localeCompare(b.label))
+      .forEach((node) => {
+        const nodeHeight = Math.max(20, (node.value / total) * usableHeight);
+        const x =
+          margin + (depth / Math.max(1, sankey.maxDepth)) * (width - margin * 2 - nodeWidth);
+        positioned.set(node.id, { ...node, x, y, height: nodeHeight });
+        y += nodeHeight + gap;
+      });
+  });
+
+  const maxLink = Math.max(1, ...sankey.links.map((link) => link.value));
+
+  return (
+    <section className="panel viz-panel">
+      <PanelHeader title="Aggregate Sankey flow" />
+      <p className="viz-note">
+        Fuses {records.length ? records.length : 0} loaded traces{runCount > 20 ? " (first 20 shown)" : ""} by step order and behavior.
+      </p>
+      {records.length ? (
+        <svg className="sankey-viz" viewBox={`0 0 ${width} ${height}`} role="img">
+          <g className="sankey-links">
+            {sankey.links.map((link) => {
+              const source = positioned.get(link.source);
+              const target = positioned.get(link.target);
+              if (!source || !target) return null;
+              const sourceX = source.x + nodeWidth;
+              const sourceY = source.y + source.height / 2;
+              const targetX = target.x;
+              const targetY = target.y + target.height / 2;
+              const curve = Math.max(40, (targetX - sourceX) / 2);
+              return (
+                <path
+                  key={`${link.source}-${link.target}`}
+                  d={`M ${sourceX} ${sourceY} C ${sourceX + curve} ${sourceY}, ${targetX - curve} ${targetY}, ${targetX} ${targetY}`}
+                  strokeWidth={Math.max(2, (link.value / maxLink) * 18)}
+                >
+                  <title>{`${source.label} -> ${target.label}: ${link.value} trace${link.value === 1 ? "" : "s"}`}</title>
+                </path>
+              );
+            })}
+          </g>
+          <g className="sankey-nodes">
+            {Array.from(positioned.values()).map((node) => (
+              <g key={node.id} transform={`translate(${node.x}, ${node.y})`}>
+                <rect className={`viz-node ${node.kind}`} width={nodeWidth} height={node.height} rx="5" />
+                <text x={node.x < width / 2 ? 22 : -8} y={node.height / 2} textAnchor={node.x < width / 2 ? "start" : "end"}>
+                  {shortLabel(node.label)}
+                </text>
+                <title>{`${node.label}: ${node.value} visit${node.value === 1 ? "" : "s"}`}</title>
+              </g>
+            ))}
+          </g>
+        </svg>
+      ) : (
+        <p className="empty">Load traces to render aggregate flow.</p>
+      )}
+    </section>
+  );
+}
+
+function TraceGraphPanel({ record, replay, selectedStepId, onSelectStep }) {
+  const steps = record.steps || [];
+  const width = 920;
+  const height = Math.max(180, 92 + steps.length * 86);
+  const centerX = 230;
+  const replayX = 590;
+  const startY = 44;
+  const stepGap = 86;
+  const replayByStep = new Map((replay?.replayed_steps || []).map((step) => [step.step_id, step]));
+
+  return (
+    <section className="panel viz-panel">
+      <PanelHeader title="Ticket replay graph" />
+      <p className="viz-note">Solid path is the recorded trajectory. Dashed branch shows replay status when debug replay has run.</p>
+      <svg className="trace-viz" viewBox={`0 0 ${width} ${height}`} role="img">
+        <defs>
+          <marker id="trace-arrow" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L8,3 z" />
+          </marker>
+        </defs>
+        <text className="lane-label" x={centerX} y="18">Recorded</text>
+        <text className="lane-label" x={replayX} y="18">Replay</text>
+        <circle className="start-node" cx={centerX} cy={startY} r="18" />
+        <text className="start-label" x={centerX} y={startY + 4}>START</text>
+        {steps.map((step, index) => {
+          const y = startY + (index + 1) * stepGap;
+          const previousY = index === 0 ? startY + 18 : startY + index * stepGap + 28;
+          const replayStep = replayByStep.get(step.step_id);
+          const selected = selectedStepId === step.step_id;
+          const label = shortLabel(step.tool?.tool_name || step.intent || step.kind, 30);
+          return (
+            <g key={step.step_id}>
+              <path className="trace-edge" d={`M ${centerX} ${previousY} L ${centerX} ${y - 30}`} />
+              <g
+                className={`trace-node ${selected ? "selected" : ""} ${step.kind}`}
+                transform={`translate(${centerX - 110}, ${y - 28})`}
+                onClick={() => onSelectStep(step.step_id)}
+              >
+                <rect width="220" height="56" rx="12" />
+                <text className="trace-kind" x="14" y="18">{step.kind.toUpperCase()}</text>
+                <text className="trace-label" x="14" y="39">{label}</text>
+                <title>{step.intent || stepLabel(step)}</title>
+              </g>
+              {replayStep ? (
+                <>
+                  <path className="replay-edge" d={`M ${centerX + 116} ${y} C ${centerX + 210} ${y}, ${replayX - 190} ${y}, ${replayX - 104} ${y}`} />
+                  <g className={`replay-node ${replayStep.side_effect_blocked ? "blocked" : ""}`} transform={`translate(${replayX - 104}, ${y - 22})`}>
+                    <rect width="208" height="44" rx="12" />
+                    <text x="14" y="18">{replayStep.side_effect_blocked ? "Blocked safely" : replayStep.mocked ? "Mocked response" : "Replayed"}</text>
+                    <text className="trace-label" x="14" y="34">{replayStep.input_matches_original === false ? "Diverged input" : "Matched original input"}</text>
+                  </g>
+                </>
+              ) : null}
+            </g>
+          );
+        })}
+      </svg>
+    </section>
   );
 }
 
