@@ -17,7 +17,7 @@ load_local_env()
 from agent.jira_triage_agent import run_jira_triage
 from evaluation.metrics.mock_recall import mock_recall_rate
 from evaluation.metrics.replay_fidelity import replay_fidelity_score
-from recorder.serializer.aer_schema import AgentExecutionRecord
+from recorder.serializer.aer_schema import AgentExecutionRecord, TraceIndex
 from recorder.storage.local_store import LocalTraceStore
 from replay.engine.replay_runner import ReplayRunner
 from replay.engine.step_editor import StepEdit
@@ -38,18 +38,12 @@ def _jsonable(value: Any) -> Any:
 
 
 def _summary(record: AgentExecutionRecord) -> dict[str, Any]:
-    side_effecting = sum(
-        1 for step in record.steps if step.tool is not None and step.tool.side_effecting
-    )
+    trace_index = TraceIndex.from_record(record)
     return {
-        "run_id": record.run_id,
-        "ticket_id": record.jira_ticket_id,
-        "agent_name": record.agent_name,
-        "status": record.status,
-        "started_at": record.started_at,
-        "completed_at": record.completed_at,
-        "steps": len(record.steps),
-        "side_effecting_tools": side_effecting,
+        **asdict(trace_index),
+        "ticket_id": trace_index.jira_ticket_id,
+        "steps": trace_index.step_count,
+        "side_effecting_tools": trace_index.side_effect_count,
     }
 
 

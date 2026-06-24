@@ -137,6 +137,145 @@ function walkDiff(path, before, after, lines) {
   lines.push({ type: "add", text: `+ ${path || "context"}: ${inlineValue(after)}` });
 }
 
+const RADAR_CATEGORIES = [
+  ["information_gathering", "Info"],
+  ["decision_making", "Decision"],
+  ["communication", "Comms"],
+  ["data_mutation", "Mutation"],
+  ["evidence_collection", "Evidence"],
+  ["error_recovery", "Recovery"],
+];
+
+function parseTime(value) {
+  const parsed = Date.parse(value || "");
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function durationMs(startedAt, completedAt) {
+  const started = parseTime(startedAt);
+  const completed = parseTime(completedAt);
+  if (!started || !completed || completed < started) return 0;
+  return completed - started;
+}
+
+function stepLatency(step) {
+  return Number(step.llm?.latency_ms || 0) + Number(step.tool?.latency_ms || 0);
+}
+
+function classifyDashboardStep(step) {
+  if (step.category) return step.category;
+  if (step.kind === "llm") {
+    const intent = String(step.intent || "").toLowerCase();
+    return /(classify|decide|decision|triage|plan|route)/.test(intent) ? "decision_making" : "reasoning";
+  }
+  if (step.tool) {
+    if (step.tool.error) return "error_recovery";
+    if (step.tool.side_effecting) {
+      return ["email.send", "slack.post", "sms.send"].includes(step.tool.tool_name)
+        ? "communication"
+        : "data_mutation";
+    }
+    return "information_gathering";
+  }
+  return step.evidence?.length ? "evidence_collection" : "other";
+}
+
+function canonicalDashboardStep(step) {
+  if (step.canonical_id) return step.canonical_id;
+  if (step.tool) {
+    return `tool:${step.tool.tool_name}:{${Object.keys(step.tool.parameters || {}).sort().join(",")}}`;
+  }
+  return `${step.kind}:${String(step.intent || step.kind).toLowerCase().replace(/[^a-z0-9]+/g, "_")}`;
+}
+
+function indexFromRecord(record) {
+  const steps = record?.steps || [];
+  const categoryDistribution = {};
+  steps.forEach((step) => {
+    const category = classifyDashboardStep(step);
+    categoryDistribution[category] = (categoryDistribution[category] || 0) + 1;
+  });
+  const toolSteps = steps.filter((step) => step.tool);
+  const totalLatency = steps.reduce((total, step) => total + stepLatency(step), 0);
+  return {
+    run_id: record.run_id,
+    ticket_id: record.jira_ticket_id,
+    agent_name: record.agent_name,
+    status: record.status,
+    started_at: record.started_at,
+    completed_at: record.completed_at,
+    steps: steps.length,
+    step_count: steps.length,
+    llm_call_count: steps.filter((step) => step.llm).length,
+    tool_call_count: toolSteps.length,
+    tool_error_count: toolSteps.filter((step) => step.tool?.error).length,
+    side_effecting_tools: toolSteps.filter((step) => step.tool?.side_effecting).length,
+    side_effect_count: toolSteps.filter((step) => step.tool?.side_effecting).length,
+    total_latency_ms: totalLatency,
+    duration_ms: durationMs(record.started_at, record.completed_at) || totalLatency,
+    avg_tool_latency_ms: toolSteps.length
+      ? toolSteps.reduce((total, step) => total + Number(step.tool?.latency_ms || 0), 0) / toolSteps.length
+      : 0,
+    category_distribution: categoryDistribution,
+    canonical_path: steps.map(canonicalDashboardStep),
+  };
+}
+
+function indexFromSummary(run) {
+  return {
+    ...run,
+    ticket_id: run.ticket_id || run.jira_ticket_id,
+    steps: Number(run.steps ?? run.step_count ?? 0),
+    step_count: Number(run.step_count ?? run.steps ?? 0),
+    llm_call_count: Number(run.llm_call_count || 0),
+    tool_call_count: Number(run.tool_call_count || 0),
+    tool_error_count: Number(run.tool_error_count || 0),
+    side_effecting_tools: Number(run.side_effecting_tools ?? run.side_effect_count ?? 0),
+    side_effect_count: Number(run.side_effect_count ?? run.side_effecting_tools ?? 0),
+    total_latency_ms: Number(run.total_latency_ms || 0),
+    duration_ms: Number(run.duration_ms || durationMs(run.started_at, run.completed_at)),
+    avg_tool_latency_ms: Number(run.avg_tool_latency_ms || 0),
+    category_distribution: run.category_distribution || {},
+    canonical_path: run.canonical_path || [],
+  };
+}
+
+function mergeIndexes(runs, records) {
+  const byRunId = new Map((runs || []).map((run) => [run.run_id, indexFromSummary(run)]));
+  (records || []).forEach((record) => {
+    if (record?.run_id) byRunId.set(record.run_id, indexFromRecord(record));
+  });
+  return Array.from(byRunId.values()).filter((item) => item.run_id && !item.error);
+}
+
+function summarizeDashboard(indexes) {
+  const totalRuns = indexes.length;
+  const totalTools = indexes.reduce((total, run) => total + run.tool_call_count, 0);
+  const totalErrors = indexes.reduce((total, run) => total + run.tool_error_count, 0);
+  const totalLatency = indexes.reduce((total, run) => total + (run.duration_ms || run.total_latency_ms || 0), 0);
+  const totalToolDuration = indexes.reduce((total, run) => total + run.avg_tool_latency_ms * run.tool_call_count, 0);
+  return {
+    runs: totalRuns,
+    avgLatency: totalRuns ? totalLatency / totalRuns : 0,
+    toolCalls: totalTools,
+    toolErrorRate: totalTools ? totalErrors / totalTools : 0,
+    avgToolDuration: totalTools ? totalToolDuration / totalTools : 0,
+    sideEffects: indexes.reduce((total, run) => total + run.side_effect_count, 0),
+  };
+}
+
+function sparklineValues(indexes, accessor) {
+  return indexes
+    .slice()
+    .sort((a, b) => parseTime(a.started_at) - parseTime(b.started_at))
+    .slice(-20)
+    .map(accessor);
+}
+
+function formatPercent(value) {
+  return `${Math.round(Number(value || 0) * 100)}%`;
+}
+
 function buildSankey(records) {
   const nodes = new Map();
   const links = new Map();
@@ -197,6 +336,7 @@ function App() {
   const [fixSummary, setFixSummary] = useState("");
   const [rawForgeContext, setRawForgeContext] = useState(null);
   const [aggregateRecords, setAggregateRecords] = useState([]);
+  const [sandboxFork, setSandboxFork] = useState(null);
 
   const selectedStep = useMemo(
     () => record?.steps.find((step) => step.step_id === selectedStepId),
@@ -254,6 +394,7 @@ function App() {
     setMetrics(null);
     setSelectedStepId(data.record.steps[0]?.step_id ?? null);
     setEdits(new Map());
+    setSandboxFork(null);
     await loadRuns();
     setStatus(`Recorded ${data.record.run_id}`);
   }
@@ -268,6 +409,7 @@ function App() {
     setMetrics(null);
     setSelectedStepId(data.record.steps[0]?.step_id ?? null);
     setEdits(new Map());
+    setSandboxFork(null);
     setStatus(`Loaded ${runId}`);
   }
 
@@ -280,7 +422,34 @@ function App() {
     });
     setReplay(data.result);
     setMetrics(data.metrics);
-    setStatus(`Replayed ${record.run_id}`);
+    setStatus(
+      data.result?.mode === "sandbox_overlay"
+        ? `Replayed ${record.run_id} in sandbox overlay`
+        : `Replayed ${record.run_id}`,
+    );
+  }
+
+  function selectRelativeStep(offset) {
+    if (!record?.steps?.length) return;
+    const currentIndex = Math.max(
+      0,
+      record.steps.findIndex((step) => step.step_id === selectedStepId),
+    );
+    const nextIndex = Math.min(record.steps.length - 1, Math.max(0, currentIndex + offset));
+    setSelectedStepId(record.steps[nextIndex].step_id);
+  }
+
+  async function forkFromSelectedStep() {
+    if (!record || selectedStepId === null) return;
+    const next = new Map(edits);
+    next.set(selectedStepId, {
+      ...(next.get(selectedStepId) || {}),
+      step_id: selectedStepId,
+      note: "Forked into sandbox overlay from Jira issue panel",
+    });
+    setEdits(next);
+    setSandboxFork({ stepId: selectedStepId, runId: record.run_id });
+    await replayRun(next);
   }
 
   async function createFixIssue() {
@@ -400,6 +569,7 @@ function App() {
 
   const sideEffects = record?.steps.filter((step) => step.tool?.side_effecting).length || 0;
   const aggregateStats = useMemo(() => summarizeRecords(aggregateRecords), [aggregateRecords]);
+  const dashboardIndexes = useMemo(() => mergeIndexes(runs, aggregateRecords), [runs, aggregateRecords]);
   const replayStep = selectedStep
     ? replay?.replayed_steps?.find((step) => step.step_id === selectedStep.step_id)
     : null;
@@ -461,23 +631,37 @@ function App() {
 
       {!isIssueContext ? (
         <>
-          <section className="metrics">
-            <Metric label="Runs" value={aggregateStats.runs} />
-            <Metric label="Tool calls" value={aggregateStats.toolCalls} />
-            <Metric label="Side effects" value={aggregateStats.sideEffects} />
-            <Metric label="Errored tools" value={aggregateStats.toolErrors} />
-            <Metric label="Avg steps" value={formatMetric(aggregateStats.avgSteps)} />
-            <Metric label="Silent closures" value={aggregateStats.silentClosures} />
-          </section>
+          <DashboardBoard
+            indexes={dashboardIndexes}
+            aggregateStats={aggregateStats}
+            onSelectRun={(runId) => guarded(() => loadRun(runId))}
+          />
           <SankeyPanel records={aggregateRecords} runCount={runs.length} onSelectRun={(runId) => guarded(() => loadRun(runId))} />
         </>
       ) : record ? (
-        <TraceGraphPanel
-          record={record}
-          replay={replay}
-          selectedStepId={selectedStepId}
-          onSelectStep={setSelectedStepId}
-        />
+        <>
+          <ReplayControls
+            record={record}
+            replay={replay}
+            selectedStepId={selectedStepId}
+            sandboxFork={sandboxFork}
+            onSelectStep={setSelectedStepId}
+            onStep={selectRelativeStep}
+            onReplay={() => guarded(() => replayRun())}
+            onFork={() => guarded(forkFromSelectedStep)}
+          />
+          <TraceGraphPanel
+            record={record}
+            replay={replay}
+            selectedStepId={selectedStepId}
+            onSelectStep={setSelectedStepId}
+          />
+          <ThinkingViewer
+            steps={record.steps || []}
+            selectedStepId={selectedStepId}
+            onSelectStep={setSelectedStepId}
+          />
+        </>
       ) : null}
 
       <section className="workspace">
@@ -541,6 +725,8 @@ function App() {
               steps={record?.steps || []}
               replayStep={replayStep}
               edit={edits.get(selectedStep.step_id)}
+              replayMode={replay?.mode}
+              sandboxWrites={replay?.sandbox_writes || []}
               onPromptEdit={applyPromptEdit}
               onToolParameterEdit={applyToolParameterEdit}
               onToolResultEdit={applyToolResultEdit}
@@ -591,6 +777,284 @@ function summarizeRecords(records) {
     ...totals,
     avgSteps: totals.runs ? totals.steps / totals.runs : 0,
   };
+}
+
+function DashboardBoard({ indexes, aggregateStats, onSelectRun }) {
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [sortKey, setSortKey] = useState("started_at");
+  const [sortDirection, setSortDirection] = useState("desc");
+  const summary = useMemo(() => summarizeDashboard(indexes), [indexes]);
+  const filtered = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    const rows = indexes.filter((item) => {
+      const matchesStatus = statusFilter === "all" || item.status === statusFilter;
+      const matchesQuery =
+        !needle ||
+        [item.run_id, item.ticket_id, item.agent_name, item.status]
+          .filter(Boolean)
+          .some((value) => String(value).toLowerCase().includes(needle));
+      return matchesStatus && matchesQuery;
+    });
+    rows.sort((a, b) => {
+      const left = sortValue(a, sortKey);
+      const right = sortValue(b, sortKey);
+      const order = left > right ? 1 : left < right ? -1 : 0;
+      return sortDirection === "asc" ? order : -order;
+    });
+    return rows;
+  }, [indexes, query, statusFilter, sortDirection, sortKey]);
+  const statuses = Array.from(new Set(indexes.map((item) => item.status).filter(Boolean))).sort();
+
+  function setSort(nextKey) {
+    if (sortKey === nextKey) {
+      setSortDirection((value) => (value === "asc" ? "desc" : "asc"));
+      return;
+    }
+    setSortKey(nextKey);
+    setSortDirection("desc");
+  }
+
+  return (
+    <section className="dashboard-board">
+      <section className="metric-grid dashboard-metrics" aria-label="Dashboard metrics">
+        <DashboardMetric
+          label="Avg latency"
+          value={formatMs(summary.avgLatency)}
+          values={sparklineValues(indexes, (item) => item.duration_ms || item.total_latency_ms)}
+        />
+        <DashboardMetric
+          label="Tool execs"
+          value={summary.toolCalls}
+          values={sparklineValues(indexes, (item) => item.tool_call_count)}
+        />
+        <DashboardMetric
+          label="Tool error rate"
+          value={formatPercent(summary.toolErrorRate)}
+          values={sparklineValues(indexes, (item) =>
+            item.tool_call_count ? item.tool_error_count / item.tool_call_count : 0,
+          )}
+        />
+        <DashboardMetric
+          label="Avg tool duration"
+          value={formatMs(summary.avgToolDuration)}
+          values={sparklineValues(indexes, (item) => item.avg_tool_latency_ms)}
+        />
+      </section>
+
+      <section className="dashboard-grid">
+        <section className="panel trace-table-panel">
+          <header className="panel-header trace-table-header">
+            <h2>Trace list</h2>
+            <div className="table-controls">
+              <input
+                value={query}
+                placeholder="Filter run, ticket, agent"
+                onChange={(event) => setQuery(event.target.value)}
+              />
+              <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+                <option value="all">All statuses</option>
+                {statuses.map((status) => (
+                  <option key={status} value={status}>{status}</option>
+                ))}
+              </select>
+            </div>
+          </header>
+          <div className="trace-table-scroll">
+            <table className="trace-table">
+              <thead>
+                <tr>
+                  <SortHeader label="Run" column="run_id" sortKey={sortKey} direction={sortDirection} onSort={setSort} />
+                  <SortHeader label="Ticket" column="ticket_id" sortKey={sortKey} direction={sortDirection} onSort={setSort} />
+                  <SortHeader label="Status" column="status" sortKey={sortKey} direction={sortDirection} onSort={setSort} />
+                  <SortHeader label="Steps" column="steps" sortKey={sortKey} direction={sortDirection} onSort={setSort} />
+                  <SortHeader label="Tools" column="tool_call_count" sortKey={sortKey} direction={sortDirection} onSort={setSort} />
+                  <SortHeader label="Errors" column="tool_error_count" sortKey={sortKey} direction={sortDirection} onSort={setSort} />
+                  <SortHeader label="Duration" column="duration_ms" sortKey={sortKey} direction={sortDirection} onSort={setSort} />
+                  <SortHeader label="Started" column="started_at" sortKey={sortKey} direction={sortDirection} onSort={setSort} />
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((row) => (
+                  <tr key={row.run_id} onClick={() => onSelectRun(row.run_id)}>
+                    <td><strong>{row.run_id}</strong><span>{row.agent_name || "unknown"}</span></td>
+                    <td>{row.ticket_id || "-"}</td>
+                    <td><StatusBadge status={row.status} /></td>
+                    <td>{row.steps}</td>
+                    <td>{row.tool_call_count}</td>
+                    <td>{row.tool_error_count}</td>
+                    <td>{formatMs(row.duration_ms || row.total_latency_ms)}</td>
+                    <td>{formatDate(row.started_at)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {!filtered.length ? <p className="empty table-empty">No traces match the current filters.</p> : null}
+          </div>
+        </section>
+
+        <section className="panel insight-panel">
+          <PanelHeader title="Radar / stats" />
+          <RadarChart indexes={indexes} />
+          <div className="insight-stats">
+            <Metric label="Runs" value={summary.runs} />
+            <Metric label="Side effects" value={summary.sideEffects} />
+            <Metric label="Avg steps" value={formatMetric(aggregateStats.avgSteps)} />
+            <Metric label="Silent closures" value={aggregateStats.silentClosures} />
+          </div>
+        </section>
+
+        <section className="panel activity-panel">
+          <PanelHeader title="Activity stream" />
+          <ActivityStream indexes={indexes} />
+        </section>
+      </section>
+    </section>
+  );
+}
+
+function DashboardMetric({ label, value, values }) {
+  return (
+    <div className="dashboard-metric">
+      <span>{label}</span>
+      <strong>{value}</strong>
+      <Sparkline values={values} />
+    </div>
+  );
+}
+
+function Sparkline({ values }) {
+  const width = 140;
+  const height = 34;
+  const clean = values.map((value) => Number(value || 0));
+  const max = Math.max(1, ...clean);
+  const points = clean.length
+    ? clean.map((value, index) => {
+        const x = clean.length === 1 ? width : (index / (clean.length - 1)) * width;
+        const y = height - (value / max) * (height - 4) - 2;
+        return `${x.toFixed(1)},${y.toFixed(1)}`;
+      }).join(" ")
+    : "";
+  return (
+    <svg className="sparkline" viewBox={`0 0 ${width} ${height}`} role="img">
+      <polyline points={points || `0,${height - 2} ${width},${height - 2}`} />
+    </svg>
+  );
+}
+
+function sortValue(row, key) {
+  if (key === "started_at") return parseTime(row.started_at);
+  if (key === "ticket_id") return row.ticket_id || "";
+  return row[key] ?? "";
+}
+
+function SortHeader({ label, column, sortKey, direction, onSort }) {
+  const active = sortKey === column;
+  return (
+    <th>
+      <button type="button" onClick={() => onSort(column)}>
+        {label}{active ? (direction === "asc" ? " ^" : " v") : ""}
+      </button>
+    </th>
+  );
+}
+
+function StatusBadge({ status }) {
+  const value = status || "unknown";
+  const tone = value === "completed" ? "green" : value === "failed" ? "red" : value === "partial" ? "yellow" : "";
+  return <Badge tone={tone}>{value}</Badge>;
+}
+
+function formatDate(value) {
+  const time = parseTime(value);
+  if (!time) return "-";
+  return new Date(time).toLocaleString([], {
+    month: "short",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function RadarChart({ indexes }) {
+  const totals = RADAR_CATEGORIES.map(([key]) =>
+    indexes.reduce((total, item) => total + Number(item.category_distribution?.[key] || 0), 0),
+  );
+  const max = Math.max(1, ...totals);
+  const center = 120;
+  const radius = 82;
+  const points = totals.map((value, index) => {
+    const angle = -Math.PI / 2 + (index / totals.length) * Math.PI * 2;
+    const scaled = (value / max) * radius;
+    return {
+      x: center + Math.cos(angle) * scaled,
+      y: center + Math.sin(angle) * scaled,
+      labelX: center + Math.cos(angle) * (radius + 30),
+      labelY: center + Math.sin(angle) * (radius + 30),
+      label: RADAR_CATEGORIES[index][1],
+      value,
+    };
+  });
+  const polygon = points.map((point) => `${point.x},${point.y}`).join(" ");
+
+  return (
+    <div className="radar-wrap">
+      <svg className="radar-chart" viewBox="0 0 240 240" role="img">
+        {[0.33, 0.66, 1].map((scale) => (
+          <polygon
+            className="radar-grid"
+            key={scale}
+            points={RADAR_CATEGORIES.map((_, index) => {
+              const angle = -Math.PI / 2 + (index / RADAR_CATEGORIES.length) * Math.PI * 2;
+              return `${center + Math.cos(angle) * radius * scale},${center + Math.sin(angle) * radius * scale}`;
+            }).join(" ")}
+          />
+        ))}
+        {points.map((point, index) => (
+          <line className="radar-axis" key={RADAR_CATEGORIES[index][0]} x1={center} y1={center} x2={point.labelX} y2={point.labelY} />
+        ))}
+        <polygon className="radar-shape" points={polygon} />
+        {points.map((point) => (
+          <text className="radar-label" key={point.label} x={point.labelX} y={point.labelY}>
+            {point.label}
+          </text>
+        ))}
+      </svg>
+      <div className="radar-legend">
+        {RADAR_CATEGORIES.map(([key, label], index) => (
+          <span key={key}>{label}: {totals[index]}</span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ActivityStream({ indexes }) {
+  const events = indexes
+    .slice()
+    .sort((a, b) => parseTime(b.started_at) - parseTime(a.started_at))
+    .slice(0, 8)
+    .map((item) => {
+      const hasError = item.tool_error_count > 0 || item.status === "failed";
+      const hasSideEffect = item.side_effect_count > 0;
+      return {
+        runId: item.run_id,
+        tone: hasError ? "red" : hasSideEffect ? "yellow" : "green",
+        text: `${item.run_id} ${item.status || "completed"} on ${item.ticket_id || "unknown ticket"}`,
+        detail: `${item.steps} steps - ${item.side_effect_count} side effects - ${formatMs(item.duration_ms || item.total_latency_ms)}`,
+      };
+    });
+  return (
+    <ol className="activity-list">
+      {events.map((event) => (
+        <li key={event.runId}>
+          <Badge tone={event.tone}>{event.tone === "red" ? "alert" : event.tone === "yellow" ? "side effect" : "clean"}</Badge>
+          <span><strong>{event.text}</strong>{event.detail}</span>
+        </li>
+      ))}
+      {!events.length ? <li className="empty">No trace activity loaded.</li> : null}
+    </ol>
+  );
 }
 
 function SankeyPanel({ records, runCount, onSelectRun }) {
@@ -712,6 +1176,78 @@ function SankeyPanel({ records, runCount, onSelectRun }) {
       ) : (
         <p className="empty">Load traces to render aggregate flow.</p>
       )}
+    </section>
+  );
+}
+
+function ReplayControls({ record, replay, selectedStepId, sandboxFork, onSelectStep, onStep, onReplay, onFork }) {
+  const [playing, setPlaying] = useState(false);
+  const steps = record?.steps || [];
+  const currentIndex = Math.max(0, steps.findIndex((step) => step.step_id === selectedStepId));
+  const currentStep = steps[currentIndex];
+  const unrecordedCount = replay?.replayed_steps?.filter((step) => step.unrecorded_tool_call).length || 0;
+
+  useEffect(() => {
+    if (!playing || !steps.length) return undefined;
+    const timer = window.setInterval(() => {
+      const index = steps.findIndex((step) => step.step_id === selectedStepId);
+      if (index >= steps.length - 1) {
+        setPlaying(false);
+        return;
+      }
+      onSelectStep(steps[index + 1].step_id);
+    }, 900);
+    return () => window.clearInterval(timer);
+  }, [onSelectStep, playing, selectedStepId, steps]);
+
+  return (
+    <section className="panel replay-controls">
+      <div>
+        <h2>Replay controls</h2>
+        <p>
+          Step {currentIndex + 1} of {steps.length}{currentStep ? ` - ${currentStep.intent || currentStep.kind}` : ""}
+        </p>
+      </div>
+      <div className="transport">
+        <button type="button" onClick={() => onStep(-1)} disabled={currentIndex <= 0}>Prev</button>
+        <button type="button" onClick={() => setPlaying((value) => !value)} disabled={!steps.length}>
+          {playing ? "Pause" : "Play"}
+        </button>
+        <button type="button" onClick={() => onStep(1)} disabled={currentIndex >= steps.length - 1}>Next</button>
+        <button type="button" onClick={onReplay} disabled={!record}>Replay</button>
+        <button type="button" onClick={onFork} disabled={!record || selectedStepId === null}>Fork sandbox</button>
+      </div>
+      <div className="replay-mode">
+        <Badge tone={replay?.mode === "sandbox_overlay" ? "yellow" : "green"}>
+          {replay?.mode === "sandbox_overlay" ? "sandbox overlay" : "record replay"}
+        </Badge>
+        {sandboxFork ? <span>Fork armed at step #{sandboxFork.stepId}</span> : null}
+        {replay?.sandbox_writes?.length ? <span>{replay.sandbox_writes.length} captured write(s)</span> : null}
+        {unrecordedCount ? <span>{unrecordedCount} divergent tool prompt(s)</span> : null}
+      </div>
+    </section>
+  );
+}
+
+function ThinkingViewer({ steps, selectedStepId, onSelectStep }) {
+  const reasoningSteps = steps.filter(
+    (step) => step.intent || step.observation || step.inference || step.tool?.side_effecting,
+  );
+  return (
+    <section className="panel thinking-panel">
+      <PanelHeader title="Thinking viewer" />
+      <ol className="thinking-list">
+        {reasoningSteps.map((step) => (
+          <li key={step.step_id} className={selectedStepId === step.step_id ? "active" : ""}>
+            <button type="button" onClick={() => onSelectStep(step.step_id)}>
+              <strong>Step {step.step_id} - {step.intent || step.kind}</strong>
+              {step.observation ? <span>Observation: {step.observation}</span> : null}
+              {step.inference ? <span>Inference: {step.inference}</span> : null}
+              {step.tool?.side_effecting ? <Badge tone="red">side effect: {step.tool.tool_name}</Badge> : null}
+            </button>
+          </li>
+        ))}
+      </ol>
     </section>
   );
 }
@@ -867,7 +1403,18 @@ function Badge({ children, tone }) {
   return <em className={tone ? `badge ${tone}` : "badge"}>{children}</em>;
 }
 
-function StepInspector({ step, previousStep, steps, replayStep, edit, onPromptEdit, onToolParameterEdit, onToolResultEdit }) {
+function StepInspector({
+  step,
+  previousStep,
+  steps,
+  replayStep,
+  edit,
+  replayMode,
+  sandboxWrites,
+  onPromptEdit,
+  onToolParameterEdit,
+  onToolResultEdit,
+}) {
   const effectiveToolResult = edit?.tool_result ?? replayStep?.output ?? step.tool?.result ?? {};
   const [prompt, setPrompt] = useState(edit?.prompt || step.llm?.prompt || "");
   const [toolParameters, setToolParameters] = useState(
@@ -876,13 +1423,17 @@ function StepInspector({ step, previousStep, steps, replayStep, edit, onPromptEd
   const [toolResult, setToolResult] = useState(
     JSON.stringify(effectiveToolResult, null, 2),
   );
+  const [unrecordedChoice, setUnrecordedChoice] = useState("");
   const timing = stepTiming(steps, step);
   const diffLines = diffContexts(previousStep?.context || {}, step.context || {});
+  const sandboxWrite = sandboxWrites.find((write) => write.step_id === step.step_id);
+  const unrecordedCall = replayStep?.unrecorded_tool_call;
 
   useEffect(() => {
     setPrompt(edit?.prompt || step.llm?.prompt || "");
     setToolParameters(JSON.stringify(edit?.tool_parameters ?? step.tool?.parameters ?? {}, null, 2));
     setToolResult(JSON.stringify(effectiveToolResult, null, 2));
+    setUnrecordedChoice("");
   }, [step.step_id, edit, step.llm?.prompt, step.tool?.parameters, effectiveToolResult]);
 
   return (
@@ -899,9 +1450,13 @@ function StepInspector({ step, previousStep, steps, replayStep, edit, onPromptEd
           {step.tool?.error ? <Badge tone="red">error</Badge> : null}
           {replayStep?.side_effect_blocked ? <Badge tone="yellow">blocked in replay</Badge> : null}
           {replayStep?.input_matches_original === false ? <Badge tone="green">diverged</Badge> : null}
+          {replayStep?.sandboxed ? <Badge tone="yellow">sandboxed</Badge> : null}
         </div>
         {step.observation ? <p><strong>Observation:</strong> {step.observation}</p> : null}
         {step.inference ? <p><strong>Inference:</strong> {step.inference}</p> : null}
+        {replayMode === "sandbox_overlay" ? (
+          <p><strong>Replay mode:</strong> sandbox overlay captures Jira and external writes without mutating live systems.</p>
+        ) : null}
       </section>
 
       {step.llm ? (
@@ -950,6 +1505,21 @@ function StepInspector({ step, previousStep, steps, replayStep, edit, onPromptEd
         </section>
       ) : null}
 
+      {sandboxWrite ? (
+        <section>
+          <h3>Sandbox overlay write</h3>
+          <pre>{stableStringify(sandboxWrite)}</pre>
+        </section>
+      ) : null}
+
+      {unrecordedCall ? (
+        <UnrecordedToolCallPrompt
+          call={unrecordedCall}
+          choice={unrecordedChoice}
+          onChoose={setUnrecordedChoice}
+        />
+      ) : null}
+
       <section>
         <h3>
           Context diff: {previousStep ? `Step ${previousStep.step_id} -> Step ${step.step_id}` : `Start -> Step ${step.step_id}`}
@@ -967,6 +1537,30 @@ function StepInspector({ step, previousStep, steps, replayStep, edit, onPromptEd
         )}
       </section>
     </div>
+  );
+}
+
+function UnrecordedToolCallPrompt({ call, choice, onChoose }) {
+  return (
+    <section className="unrecorded-call">
+      <h3>Unrecorded tool call</h3>
+      <p>{call.tool_name} has divergent parameters in this replay fork.</p>
+      <pre>{stableStringify(call.parameters)}</pre>
+      <div className="choice-row">
+        <button type="button" onClick={() => onChoose("manual_response")}>Provide manual response</button>
+        <button type="button" onClick={() => onChoose("execute_live_unsafe")}>Execute live unsafe</button>
+        <button type="button" onClick={() => onChoose("abort_replay")}>Abort replay</button>
+      </div>
+      {choice ? (
+        <p className="choice-note">
+          {choice === "manual_response"
+            ? "Manual response selected. Use Injected result above to continue the fork."
+            : choice === "execute_live_unsafe"
+              ? "Live execution is intentionally not automatic from the replay panel."
+              : "Abort selected. Run replay again without this fork edit to return to the recorded path."}
+        </p>
+      ) : null}
+    </section>
   );
 }
 

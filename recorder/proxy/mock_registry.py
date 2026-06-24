@@ -27,7 +27,7 @@ class MockRegistry:
         self._explicit: dict[str, MockDecision] = {}
         self._patterns: list[tuple[re.Pattern[str], str]] = [
             (re.compile(r"(send|email|mail|notify|slack|sms)", re.I), "external message"),
-            (re.compile(r"(write|update|delete|create|insert|attach|publish|commit)", re.I), "mutation verb"),
+            (re.compile(r"(write|update|delete|create|insert|attach|publish|commit|add|comment|transition|assign|move)", re.I), "mutation verb"),
             (re.compile(r"(payment|charge|refund|deploy)", re.I), "high-impact operation"),
         ]
 

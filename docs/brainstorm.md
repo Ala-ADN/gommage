@@ -920,26 +920,26 @@ For 100+ traces, the aggregated DAG could become noisy. Solutions:
 
 ### Phase 0: Demo Agent v2 (1-2 days)
 
-- [ ] Extend `jira_triage_agent.py` with more tools and decision points
-- [ ] Add `jira.search`, `jira.add_comment`, `jira.update_ticket`, `jira.transition`, `slack.post` tools
-- [ ] Create 5+ ticket fixtures that produce different trace shapes
-- [ ] Record 20+ traces for dashboard/DAG development
+- [x] Extend `jira_triage_agent.py` with more tools and decision points
+- [x] Add `jira.search`, `jira.add_comment`, `jira.update_ticket`, `jira.transition`, `slack.post` tools
+- [x] Create 5+ ticket fixtures that produce different trace shapes
+- [x] Record 20+ traces for dashboard/DAG development
 
 ### Phase 1: Dashboard Board (2-3 days)
 
 - [x] Forge `jira:globalPage` scaffold
-- [ ] Trace list table with filtering and sorting
-- [ ] Metrics cards (latency, tool execs, error rate, tool duration)
-- [ ] Sparkline trends
-- [ ] Radar chart with auto-classification
+- [x] Trace list table with filtering and sorting
+- [x] Metrics cards (latency, tool execs, error rate, tool duration)
+- [x] Sparkline trends
+- [x] Radar chart with auto-classification
 
 ### Phase 2: Trace Inspector (2-3 days)
 
 - [x] Step timeline with color-coded badges
 - [x] Step detail panel (LLM + Tool views)
 - [x] State diff view (git-style)
-- [ ] Thinking viewer (reasoning chain)
-- [ ] Replay controls (play, pause, step, fork)
+- [x] Thinking viewer (reasoning chain)
+- [x] Replay controls (play, pause, step, fork)
 
 ### Phase 3: AER DAG Visualizer (3-4 days)
 
@@ -952,17 +952,17 @@ For 100+ traces, the aggregated DAG could become noisy. Solutions:
 
 ### Phase 4: Sandbox & Fork (2-3 days)
 
-- [ ] Record & Replay mode (polish existing)
-- [ ] "Unrecorded tool call" UI prompt
-- [ ] Fork-on-demand: switch to sandbox mode at edit point
-- [ ] Virtual overlay for Jira state (read-through + write-capture)
+- [x] Record & Replay mode (polish existing)
+- [x] "Unrecorded tool call" UI prompt
+- [x] Fork-on-demand: switch to sandbox mode at edit point
+- [x] Virtual overlay for Jira state (read-through + write-capture)
 
 ### Phase 5: Polish & Demo Script (1-2 days)
 
-- [ ] End-to-end demo script with curated traces
-- [ ] Screenshots and recordings
-- [ ] Error states and edge cases
-- [ ] Performance optimization for large trace sets
+- [x] End-to-end demo script with curated traces
+- [x] Screenshots and recordings
+- [x] Error states and edge cases
+- [x] Performance optimization for large trace sets
 
 ---
 

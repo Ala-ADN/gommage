@@ -7,11 +7,11 @@ from replay.engine.step_editor import StepEdit, StepEditor
 
 
 def test_replay_blocks_recorded_side_effects() -> None:
-    record = run_jira_triage("DEMO-101")
+    record = run_jira_triage("DEMO-106")
 
     result = ReplayRunner(record).replay()
 
-    assert result.side_effects_blocked == 1
+    assert result.side_effects_blocked == 3
     assert replay_fidelity_score(result) == 1.0
     assert mock_recall_rate(record, result) == 1.0
 
@@ -123,6 +123,40 @@ def test_tool_parameter_edit_replays_corrected_safe_branch() -> None:
     assert replay_close.output["closure_allowed"] is True
     assert replay_close.output["customer_response_path_valid"] is True
     assert any(divergence.field == "tool.parameters" for divergence in result.divergences)
+
+
+def test_tool_parameter_edit_uses_sandbox_overlay_prompt() -> None:
+    record = run_jira_triage(
+        "EMAIL-1",
+        issue={
+            "summary": "Cyclic owner handoff zzqxp",
+            "description": "Automation assigned work back to requester.",
+            "priority": "Medium",
+            "reporter": "requester@example.com",
+            "assignee": "requester@example.com",
+            "owner": "requester@example.com",
+            "labels": ["routing-gap"],
+            "status": "In Progress",
+        },
+    )
+    email_step = next(step for step in record.steps if step.tool and step.tool.tool_name == "email.send")
+    edited_params = {**email_step.tool.parameters, "to": "customer@example.com"}
+
+    result = ReplayRunner(record).replay(
+        [StepEdit(step_id=email_step.step_id, tool_parameters=edited_params, note="fork")]
+    )
+    replay_email = next(step for step in result.replayed_steps if step.step_id == email_step.step_id)
+
+    assert result.mode == "sandbox_overlay"
+    assert result.sandbox_from_step_id == email_step.step_id
+    assert replay_email.sandboxed is True
+    assert replay_email.unrecorded_tool_call is not None
+    assert replay_email.unrecorded_tool_call["choices"] == [
+        "manual_response",
+        "execute_live_unsafe",
+        "abort_replay",
+    ]
+    assert any(write["tool_name"] == "email.send" for write in result.sandbox_writes)
 
 
 def test_board_demo_traces_are_curated_and_branchy() -> None:

@@ -10,6 +10,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import re
 from dataclasses import dataclass, field
 from typing import Any
 from urllib import error, parse, request
@@ -174,6 +175,7 @@ class _LiveJiraClient:
         *,
         priority: str | None = None,
         labels: list[str] | None = None,
+        assignee: str | None = None,
         comment: str | None = None,
     ) -> dict[str, Any]:
         fields: dict[str, Any] = {}
@@ -181,6 +183,8 @@ class _LiveJiraClient:
             fields["priority"] = {"name": priority}
         if labels is not None:
             fields["labels"] = labels
+        if assignee:
+            fields["assignee"] = {"accountId": assignee}
         if fields:
             self._request("PUT", f"/rest/api/3/issue/{issue_key}", payload={"fields": fields})
         comment_result = self.add_comment(issue_key, comment) if comment else None
@@ -267,8 +271,14 @@ class JiraToolset:
             assert self._live_client is not None
             return self._live_client.search(jql, max_results)
         query = jql.lower()
+        excluded = {
+            match.group(1).upper()
+            for match in re.finditer(r"(?:key|issue)\s*!=\s*\"?([A-Z][A-Z0-9]+-\d+)\"?", jql, re.I)
+        }
         results = []
         for ticket in self.tickets.values():
+            if str(ticket.get("ticket_id", "")).upper() in excluded:
+                continue
             searchable = " ".join(
                 str(ticket.get(key, "")) for key in ["ticket_id", "summary", "description", "status", "priority"]
             ).lower()
@@ -292,6 +302,7 @@ class JiraToolset:
         comment: str = "",
         priority: str | None = None,
         labels: list[str] | None = None,
+        assignee: str | None = None,
     ) -> dict[str, Any]:
         if self._use_live:
             assert self._live_client is not None
@@ -299,6 +310,7 @@ class JiraToolset:
                 ticket_id,
                 priority=priority,
                 labels=labels,
+                assignee=assignee,
                 comment=comment or None,
             )
             if status:
@@ -313,16 +325,23 @@ class JiraToolset:
             ticket["priority"] = priority
         if labels is not None:
             ticket["labels"] = labels
+        if assignee:
+            ticket["assignee"] = assignee
+            ticket["owner"] = assignee
         self.tickets[ticket_id] = ticket
         update = {
             "ticket_id": ticket_id,
             "status": status,
             "priority": priority,
             "labels": labels,
+            "assignee": assignee,
             "comment": comment,
         }
         self.updates.append(update)
         return {"ok": True, **update}
+
+    def assign(self, ticket_id: str, assignee: str) -> dict[str, Any]:
+        return self.update_ticket(ticket_id, assignee=assignee)
 
     def transition(self, ticket_id: str, status: str, comment: str = "") -> dict[str, Any]:
         if self._use_live:

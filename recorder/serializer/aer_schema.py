@@ -10,10 +10,12 @@ from dataclasses import asdict, dataclass, field, is_dataclass
 from datetime import datetime, timezone
 from hashlib import sha256
 import json
+import re
 from typing import Any, Literal
 
 
 StepKind = Literal["llm", "tool", "observation", "decision"]
+COMMUNICATION_TOOLS = {"email.send", "slack.post", "sms.send"}
 
 
 def utc_now_iso() -> str:
@@ -32,6 +34,22 @@ def _jsonable(value: Any) -> Any:
 
 def stable_json(value: Any) -> str:
     return json.dumps(_jsonable(value), sort_keys=True, separators=(",", ":"))
+
+
+def _slug(value: str) -> str:
+    text = re.sub(r"[^a-z0-9]+", "_", value.lower()).strip("_")
+    return text or "unknown"
+
+
+def _duration_ms(started_at: str | None, completed_at: str | None) -> int:
+    if not started_at or not completed_at:
+        return 0
+    try:
+        started = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
+        completed = datetime.fromisoformat(completed_at.replace("Z", "+00:00"))
+    except ValueError:
+        return 0
+    return max(0, int((completed - started).total_seconds() * 1000))
 
 
 @dataclass(slots=True)
@@ -112,6 +130,10 @@ class AERStep:
     llm: LLMExchange | None = None
     tool: ToolCall | None = None
     evidence: list[EvidenceLink] = field(default_factory=list)
+    category: str = ""
+    depends_on: list[int] = field(default_factory=list)
+    produces: list[str] = field(default_factory=list)
+    canonical_id: str = ""
     timestamp: str = field(default_factory=utc_now_iso)
 
     def input_fingerprint(self) -> str:
@@ -148,6 +170,10 @@ class AERStep:
                 EvidenceLink.from_dict(item)
                 for item in payload.get("evidence", [])
             ],
+            category=payload.get("category", ""),
+            depends_on=[int(item) for item in payload.get("depends_on", [])],
+            produces=[str(item) for item in payload.get("produces", [])],
+            canonical_id=payload.get("canonical_id", ""),
             timestamp=payload.get("timestamp", utc_now_iso()),
         )
 
@@ -172,6 +198,7 @@ class AgentExecutionRecord:
     def add_step(self, step: AERStep) -> AERStep:
         if any(existing.step_id == step.step_id for existing in self.steps):
             raise ValueError(f"duplicate step_id {step.step_id}")
+        _enrich_step_metadata(step, self.steps)
         self.steps.append(step)
         return step
 
@@ -193,6 +220,12 @@ class AgentExecutionRecord:
                 raise ValueError(f"step {step.step_id} is kind=llm but has no llm payload")
             if step.kind == "tool" and step.tool is None:
                 raise ValueError(f"step {step.step_id} is kind=tool but has no tool payload")
+
+    def enrich_step_metadata(self) -> None:
+        previous_steps: list[AERStep] = []
+        for step in self.steps:
+            _enrich_step_metadata(step, previous_steps)
+            previous_steps.append(step)
 
     def to_dict(self) -> dict[str, Any]:
         return _jsonable(self)
@@ -216,9 +249,150 @@ class AgentExecutionRecord:
             steps=[AERStep.from_dict(item) for item in payload.get("steps", [])],
             metadata=dict(payload.get("metadata", {})),
         )
+        record.enrich_step_metadata()
         record.validate()
         return record
 
     @classmethod
     def from_json(cls, payload: str) -> "AgentExecutionRecord":
         return cls.from_dict(json.loads(payload))
+
+
+@dataclass(slots=True)
+class TraceIndex:
+    """Lightweight trace metadata for dashboard rendering."""
+
+    run_id: str
+    jira_ticket_id: str
+    agent_name: str
+    status: str
+    started_at: str
+    completed_at: str | None
+    step_count: int
+    llm_call_count: int
+    tool_call_count: int
+    tool_error_count: int
+    side_effect_count: int
+    total_latency_ms: int
+    duration_ms: int
+    avg_tool_latency_ms: float
+    category_distribution: dict[str, int]
+    canonical_path: list[str]
+
+    @classmethod
+    def from_record(cls, record: AgentExecutionRecord) -> "TraceIndex":
+        record.enrich_step_metadata()
+        tool_latencies = [
+            step.tool.latency_ms
+            for step in record.steps
+            if step.tool is not None
+        ]
+        total_latency = sum(
+            (step.llm.latency_ms if step.llm else 0)
+            + (step.tool.latency_ms if step.tool else 0)
+            for step in record.steps
+        )
+        category_distribution: dict[str, int] = {}
+        for step in record.steps:
+            category_distribution[step.category or "other"] = (
+                category_distribution.get(step.category or "other", 0) + 1
+            )
+        return cls(
+            run_id=record.run_id,
+            jira_ticket_id=record.jira_ticket_id,
+            agent_name=record.agent_name,
+            status=record.status,
+            started_at=record.started_at,
+            completed_at=record.completed_at,
+            step_count=len(record.steps),
+            llm_call_count=sum(1 for step in record.steps if step.llm is not None),
+            tool_call_count=sum(1 for step in record.steps if step.tool is not None),
+            tool_error_count=sum(1 for step in record.steps if step.tool and step.tool.error),
+            side_effect_count=sum(
+                1 for step in record.steps if step.tool is not None and step.tool.side_effecting
+            ),
+            total_latency_ms=total_latency,
+            duration_ms=_duration_ms(record.started_at, record.completed_at),
+            avg_tool_latency_ms=sum(tool_latencies) / len(tool_latencies)
+            if tool_latencies
+            else 0.0,
+            category_distribution=category_distribution,
+            canonical_path=[step.canonical_id for step in record.steps if step.canonical_id],
+        )
+
+
+def classify_step(step: AERStep) -> str:
+    if step.kind == "llm":
+        intent = (step.intent or "").lower()
+        if any(keyword in intent for keyword in ["classify", "decide", "decision", "triage", "plan", "route"]):
+            return "decision_making"
+        if step.inference:
+            return "reasoning"
+        return "reasoning"
+    if step.kind == "tool" and step.tool is not None:
+        if step.tool.error:
+            return "error_recovery"
+        if step.tool.side_effecting:
+            if step.tool.tool_name in COMMUNICATION_TOOLS:
+                return "communication"
+            return "data_mutation"
+        return "information_gathering"
+    if step.evidence:
+        return "evidence_collection"
+    return "other"
+
+
+def canonicalize_step(step: AERStep) -> str:
+    if step.kind == "tool" and step.tool is not None:
+        param_keys = ",".join(sorted(step.tool.parameters.keys()))
+        return f"tool:{step.tool.tool_name}:{{{param_keys}}}"
+    if step.kind == "llm":
+        return f"llm:{_slug(step.intent or step.llm.model if step.llm else step.intent)}"
+    if step.evidence:
+        source = _slug(step.evidence[0].source)
+        return f"observe:{source}"
+    return f"{step.kind}:{_slug(step.intent or step.kind)}"
+
+
+def produced_keys_for_step(step: AERStep) -> list[str]:
+    if step.kind == "tool" and step.tool is not None:
+        keys = [f"tool_result:{step.tool.tool_name}", step.tool.tool_name]
+        if isinstance(step.tool.result, dict):
+            keys.extend(str(key) for key in step.tool.result.keys())
+        return sorted(set(keys))
+    if step.kind == "llm" and step.llm is not None:
+        return [f"llm_decision:{_slug(step.intent)}"]
+    if step.evidence:
+        return [f"evidence:{_slug(step.evidence[0].source)}"]
+    return []
+
+
+def _enrich_step_metadata(step: AERStep, previous_steps: list[AERStep]) -> None:
+    if not step.category:
+        step.category = classify_step(step)
+    if not step.canonical_id:
+        step.canonical_id = canonicalize_step(step)
+    if not step.produces:
+        step.produces = produced_keys_for_step(step)
+    if step.depends_on:
+        return
+
+    produced_by: dict[str, int] = {}
+    for previous in previous_steps:
+        for key in previous.produces or produced_keys_for_step(previous):
+            produced_by[key] = previous.step_id
+        for key in previous.context.keys():
+            produced_by.setdefault(str(key), previous.step_id)
+
+    dependencies: set[int] = set()
+    for key in step.context.keys():
+        source_step = produced_by.get(str(key))
+        if source_step is not None and source_step != step.step_id:
+            dependencies.add(source_step)
+    for evidence in step.evidence:
+        if evidence.source.startswith("step:"):
+            try:
+                dependencies.add(int(evidence.source.split(":", 1)[1]))
+            except ValueError:
+                continue
+    step.depends_on = sorted(dependencies)

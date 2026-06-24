@@ -7,7 +7,7 @@ from recorder.env_loader import load_local_env
 load_local_env()
 
 from agent.demo_board_traces import build_board_demo_traces
-from agent.jira_triage_agent import run_jira_triage
+from agent.jira_triage_agent import build_demo_ticket_fixtures, run_jira_triage
 from evaluation.eval_runner import run_evaluation
 from recorder.storage.local_store import LocalTraceStore
 from replay.engine.replay_runner import ReplayRunner
@@ -33,6 +33,10 @@ def main() -> None:
 
     board_seed_parser = subparsers.add_parser("seed-board-demo", help="seed curated board-level demo traces")
     board_seed_parser.add_argument("--store", default=".gommage/traces")
+
+    triage_seed_parser = subparsers.add_parser("seed-triage-demo", help="seed varied JiraTriageBot v2 traces")
+    triage_seed_parser.add_argument("--store", default=".gommage/traces")
+    triage_seed_parser.add_argument("--count", default=20, type=int)
 
     replay_parser = subparsers.add_parser("replay", help="replay a stored run")
     replay_parser.add_argument("run_id")
@@ -99,6 +103,26 @@ def main() -> None:
         store = LocalTraceStore(args.store)
         records = build_board_demo_traces()
         for record in records:
+            path = store.save(record)
+            print(f"seeded {record.run_id} ({record.jira_ticket_id}) to {path}")
+        return
+
+    if args.command == "seed-triage-demo":
+        store = LocalTraceStore(args.store)
+        fixtures = build_demo_ticket_fixtures()
+        count = max(20, args.count)
+        for index in range(count):
+            issue = dict(fixtures[index % len(fixtures)])
+            base_ticket = issue["ticket_id"]
+            issue["ticket_id"] = f"{base_ticket}-{index + 1:02d}"
+            record = run_jira_triage(
+                issue["ticket_id"],
+                issue=issue,
+                agent_mode="demo",
+                tool_mode="demo",
+                write_policy="jira_only",
+                external_messages="dry_run",
+            )
             path = store.save(record)
             print(f"seeded {record.run_id} ({record.jira_ticket_id}) to {path}")
         return

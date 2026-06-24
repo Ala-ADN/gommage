@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 import json
 import os
 from typing import Any, Callable
@@ -11,6 +12,7 @@ from uuid import uuid4
 from agent.tools.db_tool import DatabaseTool
 from agent.tools.email_tool import EmailTool
 from agent.tools.jira_tools import JiraToolset
+from agent.tools.slack_tool import SlackTool
 from recorder.proxy.llm_proxy import LLMProxy, deterministic_llm
 from recorder.proxy.openai_client import OpenAICompletion
 from recorder.adapters.function_adapter import gommage_tool
@@ -98,6 +100,112 @@ def _normalize_issue(ticket_id: str, issue: dict | None) -> dict | None:
         "issue_type": issue.get("issue_type"),
         "source": issue.get("source") or "jira",
     }
+
+
+def build_demo_ticket_fixtures() -> list[dict[str, Any]]:
+    """Return varied Jira issues used to seed dashboard and DAG demos."""
+    return [
+        {
+            "ticket_id": "DEMO-101",
+            "summary": "Customer cannot access billing export",
+            "description": "Export job fails after the account migration.",
+            "priority": "high",
+            "reporter": "ops@example.com",
+            "owner": "billing-team@example.com",
+            "assignee": "billing-team@example.com",
+            "labels": ["billing", "export"],
+            "status": "To Do",
+            "issue_type": "Bug",
+            "source": "jira",
+        },
+        {
+            "ticket_id": "DEMO-102",
+            "summary": "P1 incident: invoices are not generated for enterprise customers",
+            "description": "Multiple enterprise accounts report missing invoices after deployment.",
+            "priority": "Highest",
+            "reporter": "enterprise-ops@example.com",
+            "owner": "incident-commander@example.com",
+            "assignee": "support-ops@example.com",
+            "labels": ["incident", "billing", "enterprise"],
+            "status": "In Triage",
+            "issue_type": "Incident",
+            "source": "jira",
+        },
+        {
+            "ticket_id": "DEMO-103",
+            "summary": "Low-priority export wording question",
+            "description": "Customer asks whether CSV headers can be renamed.",
+            "priority": "Low",
+            "reporter": "support@example.com",
+            "owner": "docs-team@example.com",
+            "assignee": "support-ops@example.com",
+            "labels": ["question", "docs"],
+            "status": "Open",
+            "issue_type": "Task",
+            "source": "jira",
+        },
+        {
+            "ticket_id": "DEMO-104",
+            "summary": "SQL injection attempt in export filter",
+            "description": "Reporter pasted a filter containing `DROP TABLE exports` into a support ticket.",
+            "priority": "High",
+            "reporter": "security@example.com",
+            "owner": "security-review@example.com",
+            "assignee": "support-ops@example.com",
+            "labels": ["security", "export", "sql"],
+            "status": "In Triage",
+            "issue_type": "Bug",
+            "source": "jira",
+        },
+        {
+            "ticket_id": "DEMO-105",
+            "summary": "Duplicate triage for export timeout",
+            "description": "New ticket likely duplicates last week's export timeout incident.",
+            "priority": "Medium",
+            "reporter": "ops@example.com",
+            "owner": "support-ops@example.com",
+            "assignee": "support-ops@example.com",
+            "labels": ["duplicate", "export"],
+            "status": "Open",
+            "issue_type": "Bug",
+            "source": "jira",
+        },
+        {
+            "ticket_id": "DEMO-106",
+            "summary": "Circular assignment returns ticket to reporter",
+            "description": "The previous automation assigned follow-up back to the original reporter.",
+            "priority": "Medium",
+            "reporter": "requester@example.com",
+            "owner": "requester@example.com",
+            "assignee": "requester@example.com",
+            "labels": ["assignment", "routing-gap"],
+            "status": "In Progress",
+            "issue_type": "Task",
+            "source": "jira",
+        },
+    ]
+
+
+def _demo_ticket_map(ticket_id: str, normalized_issue: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
+    tickets = {item["ticket_id"]: dict(item) for item in build_demo_ticket_fixtures()}
+    if normalized_issue:
+        tickets[normalized_issue["ticket_id"]] = normalized_issue
+        tickets[ticket_id] = normalized_issue
+    elif ticket_id not in tickets:
+        tickets[ticket_id] = {
+            "ticket_id": ticket_id,
+            "summary": "Demo support issue",
+            "description": "Synthetic ticket generated for local replay testing.",
+            "priority": "medium",
+            "reporter": "ops@example.com",
+            "owner": "support-team@example.com",
+            "assignee": "support-team@example.com",
+            "labels": [],
+            "status": "To Do",
+            "issue_type": "Task",
+            "source": "jira",
+        }
+    return tickets
 
 
 def _resolve_llm_backend(backend: str | None) -> tuple[object, str, str]:
@@ -193,7 +301,7 @@ def run_jira_triage_demo(
 ) -> AgentExecutionRecord:
     config = config or AgentRuntimeConfig.from_env(agent_mode="demo")
     normalized_issue = _normalize_issue(ticket_id, issue)
-    llm_callable, llm_model, resolved_backend = _resolve_llm_backend(llm_backend)
+    llm_callable, llm_model, resolved_backend = _resolve_llm_backend(llm_backend or "deterministic")
     record = _new_record(
         ticket_id,
         normalized_issue,
@@ -203,19 +311,35 @@ def run_jira_triage_demo(
         config=config,
     )
     llm = LLMProxy(record, llm_callable, model=llm_model)
-    jira = JiraToolset(tickets={ticket_id: normalized_issue} if normalized_issue else {}, enable_live=False)
+    jira = JiraToolset(tickets=_demo_ticket_map(ticket_id, normalized_issue), enable_live=False)
     db = DatabaseTool()
     email = EmailTool()
+    slack = SlackTool()
 
     get_ticket_tool = gommage_tool(name="jira.get_ticket", record=record)(jira.get_ticket)
+    search_tool = gommage_tool(name="jira.search", record=record)(jira.search)
     db_query_tool = gommage_tool(name="db.query", record=record)(db.query)
+    update_ticket_tool = gommage_tool(name="jira.update_ticket", record=record)(jira.update_ticket)
+    add_comment_tool = gommage_tool(name="jira.add_comment", record=record)(jira.add_comment)
     email_send_tool = gommage_tool(name="email.send", record=record)(email.send_email)
+    slack_post_tool = gommage_tool(name="slack.post", record=record)(slack.post_message)
+    transition_tool = gommage_tool(name="jira.transition", record=record)(jira.transition)
 
     ticket = get_ticket_tool(ticket_id=ticket_id)
-    if self_steps := record.steps:
-        self_steps[-1].intent = "Load ticket context"
+    _annotate_last_step(
+        record,
+        intent="Load ticket context",
+        observation=f"Loaded {ticket_id} from Jira fixture.",
+        inference="The agent has the issue fields needed before deciding.",
+        context={
+            "ticket_id": ticket_id,
+            "status": ticket.get("status"),
+            "priority": ticket.get("priority"),
+            "labels": ticket.get("labels", []),
+        },
+    )
 
-    llm.complete(
+    classification = llm.complete(
         f"Triage this Jira ticket: {ticket['summary']}\n\nDescription: {ticket.get('description', '')}",
         system_message="You are a careful support triage agent.",
         intent="Classify ticket",
@@ -229,27 +353,267 @@ def run_jira_triage_demo(
         },
     )
 
-    rows = db_query_tool(sql=f"SELECT * FROM exports WHERE ticket_id = '{ticket_id}'")
-    if self_steps := record.steps:
-        self_steps[-1].intent = "Gather database evidence"
+    related = search_tool(
+        jql=f'summary ~ "{ticket.get("summary", "")}" AND key != {ticket_id}',
+        max_results=5,
+    )
+    _annotate_last_step(
+        record,
+        intent="Find related tickets",
+        observation=f"Found {len(related)} related ticket candidate(s).",
+        inference="Duplicate or prior-incident context affects safe triage action.",
+        context={"ticket_id": ticket_id, "related_count": len(related)},
+    )
+
+    sql = _demo_evidence_sql(ticket_id, ticket)
+    rows = db_query_tool(sql=sql)
+    _annotate_last_step(
+        record,
+        intent="Gather database evidence",
+        observation=f"Database evidence returned {len(rows)} row(s).",
+        inference="The agent needs objective evidence before mutating Jira or notifying people.",
+        context={"ticket_id": ticket_id, "sql": sql, "db_rows": len(rows)},
+    )
+
+    plan = _build_demo_plan(ticket, classification=classification, related=related, rows=rows)
 
     llm.complete(
-        "Decide whether the ticket owner needs an email.",
-        system_message="Use evidence before taking action.",
-        intent="Plan owner notification",
-        context={"owner": ticket.get("owner"), "db_rows": rows},
+        "Given the classification, related tickets, and database evidence, plan the triage action.",
+        system_message="Return a compact action plan and avoid side effects unless evidence supports them.",
+        intent="Plan triage action",
+        context={
+            "ticket_id": ticket_id,
+            "classification": classification,
+            "related": related,
+            "db_rows": rows,
+            "plan": plan,
+        },
     )
 
-    email_send_tool(
-        to=ticket.get("owner", ""),
-        subject=f"Follow-up needed for {ticket_id}",
-        body="The export failure appears related to migration state. Please review.",
+    update_ticket_tool(
+        ticket_id=ticket_id,
+        priority=plan["priority"],
+        labels=plan["labels"],
+        assignee=plan["assignee"],
+        comment=plan["audit_comment"],
     )
-    if self_steps := record.steps:
-        self_steps[-1].intent = "Notify owner"
+    _annotate_last_step(
+        record,
+        intent="Update Jira triage fields",
+        observation=f"Prepared priority {plan['priority']} and assignee {plan['assignee']}.",
+        inference="Jira field mutation is captured as a replay-blocked side effect.",
+        context={
+            "ticket_id": ticket_id,
+            "priority": plan["priority"],
+            "labels": plan["labels"],
+            "assignee": plan["assignee"],
+        },
+    )
 
-    record.complete()
+    add_comment_tool(ticket_id=ticket_id, body=plan["triage_summary"])
+    _annotate_last_step(
+        record,
+        intent="Add triage summary comment",
+        observation="Prepared a Jira comment with the evidence-backed triage summary.",
+        inference="The comment leaves an auditable explanation on the issue.",
+        context={"ticket_id": ticket_id, "comment_created": True},
+    )
+
+    notification_decision = llm.complete(
+        "Decide whether notification is needed and choose email, Slack, or no external message.",
+        system_message="Notify only when severity, SLA, or customer-impact evidence warrants it.",
+        intent="Decide notification channel",
+        context={
+            "ticket_id": ticket_id,
+            "priority": plan["priority"],
+            "channel": plan["notify_channel"],
+            "related_count": len(related),
+            "db_rows": len(rows),
+        },
+    )
+
+    if plan["notify_channel"] == "slack":
+        slack_post_tool(channel=plan["slack_channel"], text=plan["notification_body"])
+        _annotate_last_step(
+            record,
+            intent="Notify support channel",
+            observation=f"Prepared Slack escalation in {plan['slack_channel']}.",
+            inference="External communication is replay-blocked while preserving the escalation decision.",
+            context={"ticket_id": ticket_id, "channel": plan["slack_channel"], "decision": notification_decision},
+        )
+    elif plan["notify_channel"] == "email":
+        email_send_tool(
+            to=plan["notify_to"],
+            subject=f"Triage: {ticket_id}",
+            body=plan["notification_body"],
+        )
+        _annotate_last_step(
+            record,
+            intent="Notify ticket owner",
+            observation=f"Prepared email to {plan['notify_to']}.",
+            inference="Replay blocks delivery and keeps the intended recipient inspectable.",
+            context={"ticket_id": ticket_id, "notify_to": plan["notify_to"], "decision": notification_decision},
+        )
+    else:
+        llm.complete(
+            "Record why no external notification is necessary.",
+            system_message="Prefer quiet Jira updates for low-risk tickets.",
+            intent="Skip external notification",
+            context={"ticket_id": ticket_id, "reason": plan["notification_body"]},
+        )
+
+    transition_tool(
+        ticket_id=ticket_id,
+        status=plan["target_status"],
+        comment=plan["transition_comment"],
+    )
+    _annotate_last_step(
+        record,
+        intent="Transition ticket",
+        observation=f"Prepared transition to {plan['target_status']}.",
+        inference="The replay overlay captures workflow movement without mutating Jira.",
+        context={
+            "ticket_id": ticket_id,
+            "status": plan["target_status"],
+            "customer_response_present": bool(plan["transition_comment"]),
+        },
+    )
+
+    _complete_demo_record(record)
     return record
+
+
+def _annotate_last_step(
+    record: AgentExecutionRecord,
+    *,
+    intent: str,
+    observation: str,
+    inference: str,
+    context: dict[str, Any],
+) -> None:
+    if not record.steps:
+        return
+    step = record.steps[-1]
+    step.intent = intent
+    step.observation = observation
+    step.inference = inference
+    step.context = context
+    step.category = ""
+    step.depends_on = []
+    step.produces = []
+    step.canonical_id = ""
+    record.enrich_step_metadata()
+
+
+def _demo_evidence_sql(ticket_id: str, ticket: dict[str, Any]) -> str:
+    summary = f"{ticket.get('summary', '')} {ticket.get('description', '')}".lower()
+    if "drop table" in summary or "sql injection" in summary:
+        return f"SELECT * FROM exports WHERE ticket_id = '{ticket_id}' AND raw_filter LIKE '%DROP TABLE%'"
+    return f"SELECT * FROM exports WHERE ticket_id = '{ticket_id}'"
+
+
+def _build_demo_plan(
+    ticket: dict[str, Any],
+    *,
+    classification: str,
+    related: list[dict[str, Any]],
+    rows: list[dict[str, Any]],
+) -> dict[str, Any]:
+    ticket_id = ticket["ticket_id"]
+    text = " ".join(
+        str(part or "")
+        for part in [ticket.get("summary"), ticket.get("description"), ticket.get("priority"), ticket.get("labels")]
+    ).lower()
+    labels = sorted(set([*(ticket.get("labels") or []), "gommage-triaged"]))
+    priority = str(ticket.get("priority") or "Medium").title()
+    assignee = ticket.get("assignee") or ticket.get("owner") or "support-ops@example.com"
+    target_status = "In Progress"
+    notify_channel = "email"
+    notify_to = ticket.get("owner") or ticket.get("reporter") or "support-team@example.com"
+    slack_channel = "support-triage"
+    transition_comment = "Evidence-backed triage completed by JiraTriageBot."
+    triage_summary = (
+        f"Gommage triage for {ticket_id}: {classification} "
+        f"Related={len(related)}, evidence_rows={len(rows)}."
+    )
+    notification_body = f"{ticket_id} was triaged with {len(rows)} evidence row(s)."
+
+    if "incident" in text or "highest" in text or "p1" in text:
+        priority = "Highest"
+        assignee = "incident-commander@example.com"
+        target_status = "Escalated"
+        notify_channel = "slack"
+        slack_channel = "support-war-room"
+        labels.append("incident-escalated")
+        notification_body = f"{ticket_id} is escalated: billing impact requires incident review."
+    elif "low" in text or "wording question" in text:
+        priority = "Low"
+        assignee = "docs-team@example.com"
+        target_status = "Waiting for Support"
+        notify_channel = "none"
+        labels.append("quiet-response")
+        notification_body = "Low-risk documentation question; Jira comment is sufficient."
+    elif "sql injection" in text or "drop table" in text:
+        priority = "High"
+        assignee = "security-review@example.com"
+        target_status = "Security Review"
+        notify_channel = "slack"
+        slack_channel = "security-triage"
+        labels.extend(["security-review", "manual-review"])
+        notification_body = f"{ticket_id} contains unsafe SQL-like input and needs manual security review."
+    elif "duplicate" in text or related:
+        priority = "Medium"
+        assignee = "support-ops@example.com"
+        target_status = "Blocked"
+        notify_channel = "none"
+        labels.append("possible-duplicate")
+        notification_body = "Possible duplicate found; hold external notification until duplicate is confirmed."
+    elif ticket.get("assignee") == ticket.get("reporter"):
+        priority = "Medium"
+        assignee = "support-ops@example.com"
+        target_status = "In Progress"
+        notify_channel = "email"
+        notify_to = "support-ops@example.com"
+        labels.append("routing-correction")
+        notification_body = f"{ticket_id} was reassigned away from the reporter to break circular ownership."
+
+    return {
+        "priority": priority,
+        "labels": sorted(set(labels)),
+        "assignee": assignee,
+        "target_status": target_status,
+        "notify_channel": notify_channel,
+        "notify_to": notify_to,
+        "slack_channel": slack_channel,
+        "notification_body": notification_body,
+        "triage_summary": triage_summary,
+        "audit_comment": f"Gommage planned triage action for {ticket_id}.",
+        "transition_comment": transition_comment,
+    }
+
+
+def _complete_demo_record(record: AgentExecutionRecord) -> None:
+    started = datetime.fromisoformat(record.started_at.replace("Z", "+00:00"))
+    elapsed_ms = 0
+    for step in record.steps:
+        if step.llm is not None and step.llm.latency_ms <= 0:
+            step.llm.latency_ms = 72 + step.step_id * 9
+        if step.tool is not None and step.tool.latency_ms <= 0:
+            base = 44 + step.step_id * 6
+            if step.tool.side_effecting:
+                base += 64
+            if step.tool.tool_name in {"email.send", "slack.post"}:
+                base += 92
+            step.tool.latency_ms = base
+        step.timestamp = (started + timedelta(milliseconds=elapsed_ms)).isoformat()
+        elapsed_ms += (
+            (step.llm.latency_ms if step.llm else 0)
+            + (step.tool.latency_ms if step.tool else 0)
+            + 18
+            + step.step_id * 3
+        )
+    record.status = "completed"
+    record.completed_at = (started + timedelta(milliseconds=elapsed_ms)).isoformat()
 
 
 def run_proj_4421_silent_closure_demo(
@@ -556,8 +920,14 @@ def _tool_specs(config: AgentRuntimeConfig) -> list[dict[str, Any]]:
                 "ticket_id": "active issue key",
                 "priority": "optional priority name",
                 "labels": "optional labels array",
+                "assignee": "optional Jira account id or local assignee",
                 "comment": "optional audit comment",
             },
+        },
+        {
+            "name": "jira.assign",
+            "side_effecting": True,
+            "parameters": {"ticket_id": "active issue key", "assignee": "assignee id or local assignee"},
         },
         {
             "name": "jira.transition",
@@ -569,8 +939,14 @@ def _tool_specs(config: AgentRuntimeConfig) -> list[dict[str, Any]]:
             "side_effecting": True,
             "parameters": {"to": "recipient", "subject": "subject", "body": "body"},
         },
+        {
+            "name": "slack.post",
+            "side_effecting": True,
+            "parameters": {"channel": "channel name", "text": "message body"},
+        },
     ]
     if config.external_messages != "live":
+        specs[-2]["policy"] = "dry_run"
         specs[-1]["policy"] = "dry_run"
     return specs
 
@@ -581,8 +957,10 @@ def _tool_registry(jira: JiraToolset, config: AgentRuntimeConfig) -> dict[str, C
         "jira.search": jira.search,
         "jira.add_comment": jira.add_comment,
         "jira.update_ticket": jira.update_ticket,
+        "jira.assign": jira.assign,
         "jira.transition": jira.transition,
         "email.send": _email_sender(config),
+        "slack.post": _slack_sender(config),
     }
 
 
@@ -602,6 +980,23 @@ def _email_sender(config: AgentRuntimeConfig) -> Callable[..., dict[str, Any]]:
         }
 
     return dry_run_email
+
+
+def _slack_sender(config: AgentRuntimeConfig) -> Callable[..., dict[str, Any]]:
+    if config.external_messages == "live":
+        return SlackTool().post_message
+
+    def dry_run_slack(channel: str, text: str) -> dict[str, Any]:
+        return {
+            "ok": True,
+            "dry_run": True,
+            "tool_name": "slack.post",
+            "channel": channel,
+            "text": text,
+            "reason": "external messages are dry-run by policy",
+        }
+
+    return dry_run_slack
 
 
 def _planner_prompt(
@@ -663,10 +1058,10 @@ def _tool_allowed(
         parameters["ticket_id"] = target_ticket
         return True, "allowed Jira write"
 
-    if tool_name == "email.send" and config.external_messages != "live":
+    if tool_name in {"email.send", "slack.post"} and config.external_messages != "live":
         return True, "allowed as dry-run external message"
 
-    if tool_name == "email.send" and config.write_policy not in {"all", "live"}:
+    if tool_name in {"email.send", "slack.post"} and config.write_policy not in {"all", "live"}:
         return False, "external messages are disabled by write policy"
 
     return True, "allowed"
