@@ -122,31 +122,30 @@
       }
 
       .metric-strip {
-        display: grid;
-        gap: 1px;
-        grid-template-columns: repeat(5, minmax(0, 1fr));
-        overflow: hidden;
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 16px;
+        padding: 8px 16px;
       }
 
       .metric {
-        background: #fff;
-        display: grid;
-        gap: 2px;
-        min-width: 0;
-        padding: 10px 12px;
+        align-items: baseline;
+        display: flex;
+        gap: 6px;
       }
 
       .metric span {
         color: var(--muted);
-        font-size: 12px;
+        font-size: 13px;
       }
 
       .metric strong {
-        font-size: 17px;
-        min-width: 0;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
+        color: var(--ink);
+        font-size: 14px;
+        font-weight: 600;
       }
 
       .timeline-panel,
@@ -170,72 +169,46 @@
       }
 
       .timeline-wrap {
-        overflow-x: auto;
         padding: 12px;
       }
 
       #timeline {
+        background: var(--line);
+        border-radius: 4px;
         display: flex;
-        gap: 8px;
-        min-height: 132px;
-        min-width: max-content;
-      }
-
-      .timeline-step {
-        background: #fff;
-        border: 1px solid var(--line);
-        border-radius: 6px;
-        color: var(--ink);
-        display: grid;
-        gap: 8px;
-        grid-template-rows: auto 16px auto;
-        min-height: 108px;
-        min-width: 154px;
-        padding: 10px;
-        text-align: left;
-        width: 154px;
-      }
-
-      .timeline-step:hover,
-      .timeline-step.selected {
-        border-color: var(--blue);
-        box-shadow: 0 0 0 1px var(--blue);
-      }
-
-      .timeline-title {
-        display: grid;
-        gap: 2px;
-        min-width: 0;
-      }
-
-      .timeline-title strong,
-      .timeline-title span {
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
-
-      .timeline-title strong {
-        font-size: 13px;
-      }
-
-      .timeline-title span,
-      .timeline-metrics {
-        color: var(--muted);
-        font-size: 12px;
-      }
-
-      .latency-bar {
-        background: var(--gray-soft);
-        border-radius: 999px;
-        display: flex;
-        height: 16px;
+        gap: 1px;
+        height: 24px;
         overflow: hidden;
         width: 100%;
       }
 
-      .bar-segment {
+      .timeline-step {
+        background: transparent;
+        border: none;
+        cursor: pointer;
+        display: flex;
+        height: 100%;
         min-width: 2px;
+        padding: 0;
+        transition: opacity 0.2s;
+      }
+
+      .timeline-step:hover {
+        opacity: 0.8;
+      }
+
+      .timeline-step.selected {
+        outline: 2px solid var(--blue);
+        outline-offset: -2px;
+        z-index: 1;
+      }
+
+      .timeline-step.error {
+        box-shadow: inset 0 -4px 0 var(--red);
+      }
+
+      .bar-segment {
+        height: 100%;
       }
 
       .bar-segment.llm {
@@ -252,10 +225,6 @@
 
       .bar-segment.idle {
         background: var(--gray);
-      }
-
-      .timeline-step.error .latency-bar {
-        outline: 2px solid var(--red);
       }
 
       .legend {
@@ -283,7 +252,7 @@
       .main-grid {
         display: grid;
         gap: 14px;
-        grid-template-columns: minmax(520px, 1fr) minmax(360px, 42%);
+        grid-template-columns: 1fr 1fr;
       }
 
       #graph-container {
@@ -532,10 +501,6 @@
           display: grid;
         }
 
-        .metric-strip {
-          grid-template-columns: repeat(2, minmax(0, 1fr));
-        }
-
         select {
           min-width: 0;
           width: 100%;
@@ -560,23 +525,23 @@
 
       <section class="metric-strip" aria-label="Trace latency summary">
         <div class="metric">
-          <span>Run</span>
+          <span>Run:</span>
           <strong id="metric-run">None</strong>
         </div>
         <div class="metric">
-          <span>Steps</span>
+          <span>Steps:</span>
           <strong id="metric-steps">0</strong>
         </div>
         <div class="metric">
-          <span>LLM time</span>
+          <span>LLM time:</span>
           <strong id="metric-llm">0ms</strong>
         </div>
         <div class="metric">
-          <span>Tool time</span>
+          <span>Tool time:</span>
           <strong id="metric-tool">0ms</strong>
         </div>
         <div class="metric">
-          <span>Idle time</span>
+          <span>Idle time:</span>
           <strong id="metric-idle">0ms</strong>
         </div>
       </section>
@@ -811,37 +776,33 @@
         }
 
         const timings = state.steps.map(stepTiming);
-        const maxTotal = Math.max(
-          1,
-          ...timings.map((timing) => timing.llmMs + timing.toolMs + timing.idleMs),
-        );
+        const totalMs = Math.max(1, sum(timings, "llmMs") + sum(timings, "toolMs") + sum(timings, "idleMs"));
 
         state.steps.forEach((step, index) => {
           const timing = timings[index];
+          const stepMs = timing.llmMs + timing.toolMs + timing.idleMs;
+          const widthPct = Math.max(0.5, (stepMs / totalMs) * 100);
+
           const button = document.createElement("button");
           button.type = "button";
           button.className = `timeline-step ${step.tool?.error ? "error" : ""}`;
           button.dataset.stepId = String(step.step_id);
+          button.style.width = `${widthPct}%`;
+          button.title = `Step ${step.step_id}: ${step.intent || step.kind}\nLLM: ${formatMs(timing.llmMs)}\nTool: ${formatMs(timing.toolMs)}\nIdle: ${formatMs(timing.idleMs)}`;
+
           button.innerHTML = `
-            <span class="timeline-title">
-              <strong>#${step.step_id} ${escapeHtml(step.intent || step.kind)}</strong>
-              <span>${escapeHtml(stepLabel(step))}</span>
-            </span>
-            <span class="latency-bar" aria-label="${escapeHtml(timingLabel(timing))}">
-              ${renderBarSegment("llm", timing.llmMs, maxTotal)}
-              ${renderBarSegment(step.tool?.side_effecting ? "side-effect" : "tool", timing.toolMs, maxTotal)}
-              ${renderBarSegment("idle", timing.idleMs, maxTotal)}
-            </span>
-            <span class="timeline-metrics">${escapeHtml(timingLabel(timing))}</span>
+            ${renderBarSegment("llm", timing.llmMs, stepMs)}
+            ${renderBarSegment(step.tool?.side_effecting ? "side-effect" : "tool", timing.toolMs, stepMs)}
+            ${renderBarSegment("idle", timing.idleMs, stepMs)}
           `;
           button.addEventListener("click", () => selectStep(step.step_id));
           els.timeline.append(button);
         });
       }
 
-      function renderBarSegment(className, value, maxTotal) {
+      function renderBarSegment(className, value, stepTotalMs) {
         if (!value) return "";
-        const width = Math.max(3, (value / maxTotal) * 100);
+        const width = stepTotalMs > 0 ? (value / stepTotalMs) * 100 : 0;
         return `<span class="bar-segment ${className}" style="width:${width}%"></span>`;
       }
 

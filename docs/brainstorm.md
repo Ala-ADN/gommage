@@ -927,7 +927,7 @@ For 100+ traces, the aggregated DAG could become noisy. Solutions:
 
 ### Phase 1: Dashboard Board (2-3 days)
 
-- [ ] Forge `jira:globalPage` scaffold
+- [x] Forge `jira:globalPage` scaffold
 - [ ] Trace list table with filtering and sorting
 - [ ] Metrics cards (latency, tool execs, error rate, tool duration)
 - [ ] Sparkline trends
@@ -935,9 +935,9 @@ For 100+ traces, the aggregated DAG could become noisy. Solutions:
 
 ### Phase 2: Trace Inspector (2-3 days)
 
-- [ ] Step timeline with color-coded badges
-- [ ] Step detail panel (LLM + Tool views)
-- [ ] State diff view (git-style)
+- [x] Step timeline with color-coded badges
+- [x] Step detail panel (LLM + Tool views)
+- [x] State diff view (git-style)
 - [ ] Thinking viewer (reasoning chain)
 - [ ] Replay controls (play, pause, step, fork)
 
