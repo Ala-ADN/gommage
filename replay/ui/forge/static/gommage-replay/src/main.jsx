@@ -37,6 +37,12 @@ function formatMetric(value) {
   return Number(value).toFixed(2);
 }
 
+function formatMs(value) {
+  const ms = Number(value || 0);
+  if (ms >= 1000) return `${(ms / 1000).toFixed(ms >= 10000 ? 0 : 1)}s`;
+  return `${Math.round(ms)}ms`;
+}
+
 function stepLabel(step) {
   return step.tool?.tool_name || step.llm?.model || step.kind;
 }
@@ -53,7 +59,82 @@ function flowNodeKey(step, depth) {
 
 function shortLabel(value, max = 24) {
   if (!value) return "";
-  return value.length > max ? `${value.slice(0, max - 1)}…` : value;
+  return value.length > max ? `${value.slice(0, max - 3)}...` : value;
+}
+
+function timestampDiffMs(start, end) {
+  if (!start || !end) return 0;
+  const startMs = Date.parse(start);
+  const endMs = Date.parse(end);
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) return 0;
+  return Math.max(0, endMs - startMs);
+}
+
+function stepTiming(steps, step) {
+  const index = steps.findIndex((item) => item.step_id === step.step_id);
+  const nextStep = index >= 0 ? steps[index + 1] : null;
+  const llmMs = Number(step.llm?.latency_ms || 0);
+  const toolMs = Number(step.tool?.latency_ms || 0);
+  const timestampGapMs = timestampDiffMs(step.timestamp, nextStep?.timestamp);
+  const idleMs = Math.max(0, timestampGapMs - llmMs - toolMs);
+  return { llmMs, toolMs, idleMs, timestampGapMs };
+}
+
+function timingLabel(timing) {
+  return `LLM ${formatMs(timing.llmMs)} - Tool ${formatMs(timing.toolMs)} - Idle ${formatMs(timing.idleMs)}`;
+}
+
+function isPlainObject(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function sortJson(value) {
+  if (Array.isArray(value)) return value.map(sortJson);
+  if (isPlainObject(value)) {
+    return Object.keys(value)
+      .sort()
+      .reduce((acc, key) => {
+        acc[key] = sortJson(value[key]);
+        return acc;
+      }, {});
+  }
+  return value;
+}
+
+function stableStringify(value) {
+  if (value === undefined) return "undefined";
+  return JSON.stringify(sortJson(value), null, 2);
+}
+
+function inlineValue(value) {
+  const text = stableStringify(value);
+  return text.length > 180 ? `${text.slice(0, 177)}...` : text;
+}
+
+function diffContexts(before, after) {
+  const lines = [];
+  walkDiff("", before || {}, after || {}, lines);
+  return lines;
+}
+
+function walkDiff(path, before, after, lines) {
+  if (stableStringify(before) === stableStringify(after)) return;
+  if (isPlainObject(before) && isPlainObject(after)) {
+    const keys = Array.from(new Set([...Object.keys(before), ...Object.keys(after)])).sort();
+    keys.forEach((key) => {
+      const nextPath = path ? `${path}.${key}` : key;
+      if (!(key in after)) {
+        lines.push({ type: "remove", text: `- ${nextPath}: ${inlineValue(before[key])}` });
+      } else if (!(key in before)) {
+        lines.push({ type: "add", text: `+ ${nextPath}: ${inlineValue(after[key])}` });
+      } else {
+        walkDiff(nextPath, before[key], after[key], lines);
+      }
+    });
+    return;
+  }
+  lines.push({ type: "remove", text: `- ${path || "context"}: ${inlineValue(before)}` });
+  lines.push({ type: "add", text: `+ ${path || "context"}: ${inlineValue(after)}` });
 }
 
 function buildSankey(records) {
@@ -121,6 +202,11 @@ function App() {
     () => record?.steps.find((step) => step.step_id === selectedStepId),
     [record, selectedStepId],
   );
+  const previousSelectedStep = useMemo(() => {
+    if (!record || selectedStepId === null) return null;
+    const index = record.steps.findIndex((step) => step.step_id === selectedStepId);
+    return index > 0 ? record.steps[index - 1] : null;
+  }, [record, selectedStepId]);
   const isIssueContext = Boolean(issueContext?.issueKey);
   const actionTargetIssue = issueContext?.issueKey || activeRunTicket || null;
   const actionTargetProject =
@@ -382,7 +468,7 @@ function App() {
                   <strong>{run.run_id}</strong>
                   <span>{run.ticket_id || "No ticket id"}</span>
                   <span>
-                    {run.steps} steps · {run.side_effecting_tools} side effects
+                    {run.steps} steps - {run.side_effecting_tools} side effects
                   </span>
                 </button>
               ))
@@ -421,6 +507,8 @@ function App() {
           {selectedStep ? (
             <StepInspector
               step={selectedStep}
+              previousStep={previousSelectedStep}
+              steps={record?.steps || []}
               replayStep={replayStep}
               edit={edits.get(selectedStep.step_id)}
               onPromptEdit={applyPromptEdit}
@@ -535,17 +623,81 @@ function SankeyPanel({ records, runCount }) {
 
 function TraceGraphPanel({ record, replay, selectedStepId, onSelectStep }) {
   const steps = record.steps || [];
-  const width = 920;
-  const height = Math.max(180, 92 + steps.length * 86);
+  const timings = steps.map((step) => stepTiming(steps, step));
+  const totalLlm = timings.reduce((total, timing) => total + timing.llmMs, 0);
+  const totalTool = timings.reduce((total, timing) => total + timing.toolMs, 0);
+  const totalIdle = timings.reduce((total, timing) => total + timing.idleMs, 0);
+  const hasTimestampGap = timings.some((timing) => timing.timestampGapMs > 0);
+  const maxStepTotal = Math.max(
+    1,
+    ...timings.map((timing) => timing.llmMs + timing.toolMs + timing.idleMs),
+  );
+  const width = 980;
+  const height = Math.max(180, 92 + steps.length * 82);
   const centerX = 230;
   const replayX = 590;
   const startY = 44;
-  const stepGap = 86;
+  const stepGap = 82;
   const replayByStep = new Map((replay?.replayed_steps || []).map((step) => [step.step_id, step]));
 
   return (
     <section className="panel viz-panel">
-      <PanelHeader title="Ticket replay graph" />
+      <PanelHeader title="Trace inspector" />
+      <div className="trace-summary">
+        <Metric label="LLM time" value={formatMs(totalLlm)} />
+        <Metric label="Tool time" value={formatMs(totalTool)} />
+        <Metric label="Idle time" value={formatMs(totalIdle)} />
+        <Metric label="Selected" value={selectedStepId ? `#${selectedStepId}` : "None"} />
+      </div>
+      <div className="timeline-heading">
+        <p className="viz-note">
+          {hasTimestampGap
+            ? "Horizontal swimlane shows LLM think-time, tool execution, and idle time for each step."
+            : "Idle time is unavailable for this trace because timestamps are missing or too coarse."}
+        </p>
+        <div className="timeline-legend">
+          <span><i className="llm" />LLM</span>
+          <span><i className="tool" />Tool</span>
+          <span><i className="side-effect" />Side effect</span>
+          <span><i className="idle" />Idle</span>
+        </div>
+      </div>
+      <div className="step-timeline" role="list" aria-label="Step latency timeline">
+        {steps.map((step, index) => {
+          const timing = timings[index];
+          const selected = selectedStepId === step.step_id;
+          const stepTotal = timing.llmMs + timing.toolMs + timing.idleMs;
+          const label = step.tool?.tool_name || step.intent || step.kind;
+          return (
+            <button
+              className={`timeline-card ${selected ? "selected" : ""} ${step.tool?.error ? "error" : ""}`}
+              key={step.step_id}
+              onClick={() => onSelectStep(step.step_id)}
+              role="listitem"
+              type="button"
+            >
+              <strong>#{step.step_id} {shortLabel(step.intent || step.kind, 28)}</strong>
+              <span>{shortLabel(label, 28)}</span>
+              <span className="latency-bar" title={timingLabel(timing)}>
+                {timing.llmMs ? (
+                  <i className="llm" style={{ width: `${Math.max(3, (timing.llmMs / maxStepTotal) * 100)}%` }} />
+                ) : null}
+                {timing.toolMs ? (
+                  <i
+                    className={step.tool?.side_effecting ? "side-effect" : "tool"}
+                    style={{ width: `${Math.max(3, (timing.toolMs / maxStepTotal) * 100)}%` }}
+                  />
+                ) : null}
+                {timing.idleMs ? (
+                  <i className="idle" style={{ width: `${Math.max(3, (timing.idleMs / maxStepTotal) * 100)}%` }} />
+                ) : null}
+                {!stepTotal ? <i className="empty-latency" /> : null}
+              </span>
+              <span className="timeline-meta">{timingLabel(timing)}</span>
+            </button>
+          );
+        })}
+      </div>
       <p className="viz-note">Solid path is the recorded trajectory. Dashed branch shows replay status when debug replay has run.</p>
       <svg className="trace-viz" viewBox={`0 0 ${width} ${height}`} role="img">
         <defs>
@@ -574,7 +726,7 @@ function TraceGraphPanel({ record, replay, selectedStepId, onSelectStep }) {
                 <rect width="220" height="56" rx="12" />
                 <text className="trace-kind" x="14" y="18">{step.kind.toUpperCase()}</text>
                 <text className="trace-label" x="14" y="39">{label}</text>
-                <title>{step.intent || stepLabel(step)}</title>
+                <title>{`${step.intent || stepLabel(step)} - ${timingLabel(stepTiming(steps, step))}`}</title>
               </g>
               {replayStep ? (
                 <>
@@ -616,11 +768,13 @@ function Badge({ children, tone }) {
   return <em className={tone ? `badge ${tone}` : "badge"}>{children}</em>;
 }
 
-function StepInspector({ step, replayStep, edit, onPromptEdit, onToolResultEdit }) {
+function StepInspector({ step, previousStep, steps, replayStep, edit, onPromptEdit, onToolResultEdit }) {
   const [prompt, setPrompt] = useState(edit?.prompt || step.llm?.prompt || "");
   const [toolResult, setToolResult] = useState(
     JSON.stringify(edit?.tool_result ?? step.tool?.result ?? {}, null, 2),
   );
+  const timing = stepTiming(steps, step);
+  const diffLines = diffContexts(previousStep?.context || {}, step.context || {});
 
   useEffect(() => {
     setPrompt(edit?.prompt || step.llm?.prompt || "");
@@ -634,27 +788,44 @@ function StepInspector({ step, replayStep, edit, onPromptEdit, onToolResultEdit 
         <p>{step.intent}</p>
         <div className="badges">
           <Badge>{step.kind}</Badge>
+          <Badge>LLM {formatMs(timing.llmMs)}</Badge>
+          <Badge>Tool {formatMs(timing.toolMs)}</Badge>
+          <Badge>Idle {formatMs(timing.idleMs)}</Badge>
           {step.tool?.side_effecting ? <Badge tone="red">side effect</Badge> : null}
+          {step.tool?.error ? <Badge tone="red">error</Badge> : null}
           {replayStep?.side_effect_blocked ? <Badge tone="yellow">blocked in replay</Badge> : null}
+          {replayStep?.input_matches_original === false ? <Badge tone="green">diverged</Badge> : null}
         </div>
+        {step.observation ? <p><strong>Observation:</strong> {step.observation}</p> : null}
+        {step.inference ? <p><strong>Inference:</strong> {step.inference}</p> : null}
       </section>
 
       {step.llm ? (
         <section>
-          <h3>Prompt</h3>
+          <details>
+            <summary>System message</summary>
+            <pre>{step.llm.system_message || "No system message recorded."}</pre>
+          </details>
+          <h3>Prompt editor</h3>
           <textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} />
           <button onClick={() => onPromptEdit(step, prompt)}>Rewrite prompt and continue</button>
-          <h3>Recorded response</h3>
-          <pre>{step.llm.response}</pre>
+          <details open>
+            <summary>Recorded response</summary>
+            <pre>{step.llm.response}</pre>
+          </details>
         </section>
       ) : null}
 
       {step.tool ? (
         <section>
-          <h3>Tool parameters</h3>
-          <pre>{JSON.stringify(step.tool.parameters, null, 2)}</pre>
-          <h3>Recorded result</h3>
-          <pre>{JSON.stringify(step.tool.result, null, 2)}</pre>
+          <details open>
+            <summary>Tool parameters</summary>
+            <pre>{stableStringify(step.tool.parameters)}</pre>
+          </details>
+          <details>
+            <summary>Recorded result</summary>
+            <pre>{stableStringify(step.tool.result)}</pre>
+          </details>
           <h3>Injected result</h3>
           <textarea value={toolResult} onChange={(event) => setToolResult(event.target.value)} />
           <button onClick={() => onToolResultEdit(step, toolResult)}>
@@ -666,9 +837,26 @@ function StepInspector({ step, replayStep, edit, onPromptEdit, onToolResultEdit 
       {replayStep ? (
         <section>
           <h3>Replay output</h3>
-          <pre>{JSON.stringify(replayStep.output, null, 2)}</pre>
+          <pre>{stableStringify(replayStep.output)}</pre>
         </section>
       ) : null}
+
+      <section>
+        <h3>
+          Context diff: {previousStep ? `Step ${previousStep.step_id} -> Step ${step.step_id}` : `Start -> Step ${step.step_id}`}
+        </h3>
+        {diffLines.length ? (
+          <div className="diff-view">
+            {diffLines.map((line, index) => (
+              <span className={`diff-line ${line.type}`} key={`${line.type}-${index}`}>
+                {line.text}
+              </span>
+            ))}
+          </div>
+        ) : (
+          <p className="empty inline-empty">No context changes recorded for this step.</p>
+        )}
+      </section>
     </div>
   );
 }
