@@ -283,7 +283,14 @@ resolver.define("recordRun", async ({ payload, context }) => {
   const issue = await fetchIssueDetails(issueKey);
   const data = await backendFetch("/api/record", {
     method: "POST",
-    body: JSON.stringify({ ticket_id: issueKey, issue }),
+    body: JSON.stringify({
+      ticket_id: issueKey,
+      issue,
+      agent_mode: "live",
+      tool_mode: "live",
+      write_policy: "jira_only",
+      external_messages: "dry_run",
+    }),
   });
   const warnings = [];
   try {

@@ -10,6 +10,10 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, unquote, urlparse
 
+from recorder.env_loader import load_local_env
+
+load_local_env()
+
 from agent.jira_triage_agent import run_jira_triage
 from evaluation.metrics.mock_recall import mock_recall_rate
 from evaluation.metrics.replay_fidelity import replay_fidelity_score
@@ -88,6 +92,12 @@ class GommageUIHandler(BaseHTTPRequestHandler):
                 ticket_id,
                 issue=payload.get("issue"),
                 llm_backend=str(payload.get("llm_backend") or "auto"),
+                agent_mode=payload.get("agent_mode"),
+                tool_mode=payload.get("tool_mode"),
+                write_policy=payload.get("write_policy"),
+                external_messages=payload.get("external_messages"),
+                max_steps=payload.get("max_steps"),
+                system_prompt=payload.get("system_prompt"),
             )
             self.server.store.save(record)
             self._send_json({"record": record.to_dict(), "summary": _summary(record)})

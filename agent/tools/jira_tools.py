@@ -1,8 +1,8 @@
-"""Jira tool adapters used by the demo agents.
+"""Jira tool adapters used by the demo and live agents.
 
-By default this keeps the deterministic in-memory behavior for stable local
-replays. Set ``GOMMAGE_TOOL_MODE=live`` (or ``auto`` with complete Jira env)
-to execute live Jira REST API calls.
+By default this keeps deterministic in-memory behavior for stable local replays.
+Set ``GOMMAGE_TOOL_MODE=live`` (or ``auto`` with complete Jira env) to execute
+live Jira REST API calls.
 """
 
 from __future__ import annotations
@@ -33,12 +33,25 @@ def _read_text_block(node: Any) -> str:
     return "".join(filter(None, [own_text, child_text])).strip()
 
 
+def _adf_doc(text: str) -> dict[str, Any]:
+    return {
+        "type": "doc",
+        "version": 1,
+        "content": [
+            {
+                "type": "paragraph",
+                "content": [{"type": "text", "text": text}],
+            }
+        ],
+    }
+
+
 def _jira_env_mode() -> bool:
     """Return whether live mode should be active based on env config."""
     mode = (os.getenv("GOMMAGE_TOOL_MODE") or "auto").strip().lower()
     if mode == "live":
         return True
-    if mode == "mock":
+    if mode in {"mock", "demo", "local"}:
         return False
     return bool(
         os.getenv("JIRA_CLOUD_URL")
@@ -64,7 +77,7 @@ class _LiveJiraClient:
         method: str,
         path: str,
         *,
-        params: dict[str, str] | None = None,
+        params: dict[str, str | int] | None = None,
         payload: dict[str, Any] | None = None,
     ) -> Any:
         target = f"{self.base_url}/{path.lstrip('/')}"
@@ -123,32 +136,72 @@ class _LiveJiraClient:
             "issue_type": issue_type.get("name"),
         }
 
+    def search(self, jql: str, max_results: int) -> list[dict[str, Any]]:
+        response = self._request(
+            "GET",
+            "/rest/api/3/search",
+            params={
+                "jql": jql,
+                "maxResults": max(1, min(int(max_results), 10)),
+                "fields": "summary,status,priority,labels,issuetype",
+            },
+        )
+        results: list[dict[str, Any]] = []
+        for item in response.get("issues", []):
+            fields_payload = item.get("fields") or {}
+            results.append(
+                {
+                    "ticket_id": item.get("key"),
+                    "summary": fields_payload.get("summary"),
+                    "status": (fields_payload.get("status") or {}).get("name"),
+                    "priority": (fields_payload.get("priority") or {}).get("name"),
+                    "labels": fields_payload.get("labels") or [],
+                    "issue_type": (fields_payload.get("issuetype") or {}).get("name"),
+                }
+            )
+        return results
+
+    def add_comment(self, issue_key: str, body: str) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            f"/rest/api/3/issue/{issue_key}/comment",
+            payload={"body": _adf_doc(body)},
+        )
+
+    def update_issue(
+        self,
+        issue_key: str,
+        *,
+        priority: str | None = None,
+        labels: list[str] | None = None,
+        comment: str | None = None,
+    ) -> dict[str, Any]:
+        fields: dict[str, Any] = {}
+        if priority:
+            fields["priority"] = {"name": priority}
+        if labels is not None:
+            fields["labels"] = labels
+        if fields:
+            self._request("PUT", f"/rest/api/3/issue/{issue_key}", payload={"fields": fields})
+        comment_result = self.add_comment(issue_key, comment) if comment else None
+        return {"ok": True, "ticket_id": issue_key, "fields": fields, "comment": comment_result}
+
     def get_transitions(self, issue_key: str) -> list[dict[str, Any]]:
         response = self._request("GET", f"/rest/api/3/issue/{issue_key}/transitions")
         return list(response.get("transitions", []))
 
     def transition_issue(self, issue_key: str, transition_id: str, comment: str | None) -> None:
         payload: dict[str, Any] = {"transition": {"id": str(transition_id)}}
-        if comment:
-            payload["update"] = {
-                "comment": [
-                    {
-                        "add": {
-                            "body": {
-                                "type": "text",
-                                "text": comment,
-                            }
-                        }
-                    }
-                ]
-            }
         self._request("POST", f"/rest/api/3/issue/{issue_key}/transitions", payload=payload)
+        if comment:
+            self.add_comment(issue_key, comment)
 
 
 @dataclass
 class JiraToolset:
     tickets: dict[str, dict[str, Any]] = field(default_factory=dict)
     updates: list[dict[str, Any]] = field(default_factory=list)
+    comments: list[dict[str, Any]] = field(default_factory=list)
     enable_live: bool | None = None
 
     def __post_init__(self) -> None:
@@ -172,6 +225,8 @@ class JiraToolset:
                 "priority": "high",
                 "reporter": "ops@example.com",
                 "owner": "billing-team@example.com",
+                "labels": ["billing"],
+                "status": "To Do",
             }
 
     @property
@@ -181,29 +236,19 @@ class JiraToolset:
     def get_ticket(self, ticket_id: str) -> dict[str, Any]:
         if self._use_live:
             assert self._live_client is not None
-            try:
-                return self._live_client.get_issue(
-                    ticket_id,
-                    [
-                        "summary",
-                        "description",
-                        "priority",
-                        "reporter",
-                        "assignee",
-                        "labels",
-                        "status",
-                        "issuetype",
-                    ],
-                )
-            except RuntimeError as exc:
-                return {
-                    "ticket_id": ticket_id,
-                    "summary": f"{ticket_id} (live lookup failed)",
-                    "description": str(exc),
-                    "priority": "unknown",
-                    "reporter": "",
-                    "owner": "",
-                }
+            return self._live_client.get_issue(
+                ticket_id,
+                [
+                    "summary",
+                    "description",
+                    "priority",
+                    "reporter",
+                    "assignee",
+                    "labels",
+                    "status",
+                    "issuetype",
+                ],
+            )
         if ticket_id not in self.tickets:
             self.tickets[ticket_id] = {
                 "ticket_id": ticket_id,
@@ -212,10 +257,74 @@ class JiraToolset:
                 "priority": "medium",
                 "reporter": "ops@example.com",
                 "owner": "support-team@example.com",
+                "labels": [],
+                "status": "To Do",
             }
         return dict(self.tickets[ticket_id])
 
-    def update_ticket(self, ticket_id: str, status: str, comment: str) -> dict[str, Any]:
+    def search(self, jql: str, max_results: int = 10) -> list[dict[str, Any]]:
+        if self._use_live:
+            assert self._live_client is not None
+            return self._live_client.search(jql, max_results)
+        query = jql.lower()
+        results = []
+        for ticket in self.tickets.values():
+            searchable = " ".join(
+                str(ticket.get(key, "")) for key in ["ticket_id", "summary", "description", "status", "priority"]
+            ).lower()
+            if any(token.strip("'\"") in searchable for token in query.split() if len(token.strip("'\"")) > 2):
+                results.append(dict(ticket))
+        return results[: max(1, min(int(max_results), 10))]
+
+    def add_comment(self, ticket_id: str, body: str) -> dict[str, Any]:
+        if self._use_live:
+            assert self._live_client is not None
+            result = self._live_client.add_comment(ticket_id, body)
+            return {"ok": True, "ticket_id": ticket_id, "comment_id": result.get("id")}
+        comment = {"ticket_id": ticket_id, "body": body}
+        self.comments.append(comment)
+        return {"ok": True, **comment}
+
+    def update_ticket(
+        self,
+        ticket_id: str,
+        status: str | None = None,
+        comment: str = "",
+        priority: str | None = None,
+        labels: list[str] | None = None,
+    ) -> dict[str, Any]:
+        if self._use_live:
+            assert self._live_client is not None
+            result = self._live_client.update_issue(
+                ticket_id,
+                priority=priority,
+                labels=labels,
+                comment=comment or None,
+            )
+            if status:
+                transition = self.transition(ticket_id, status=status, comment=comment)
+                result["transition"] = transition
+            return result
+
+        ticket = self.get_ticket(ticket_id)
+        if status:
+            ticket["status"] = status
+        if priority:
+            ticket["priority"] = priority
+        if labels is not None:
+            ticket["labels"] = labels
+        self.tickets[ticket_id] = ticket
+        update = {
+            "ticket_id": ticket_id,
+            "status": status,
+            "priority": priority,
+            "labels": labels,
+            "comment": comment,
+        }
+        self.updates.append(update)
+        return {"ok": True, **update}
+
+    def transition(self, ticket_id: str, status: str, comment: str = "") -> dict[str, Any]:
         if self._use_live:
             assert self._live_client is not None
             issue = self.get_ticket(ticket_id)
@@ -242,23 +351,12 @@ class JiraToolset:
                     ],
                 }
 
-            try:
-                self._live_client.transition_issue(ticket_id, str(chosen.get("id", "")), comment=comment)
-                return {
-                    "ok": True,
-                    "ticket_id": ticket_id,
-                    "from_status": current_status,
-                    "to_status": status,
-                }
-            except RuntimeError as exc:
-                return {
-                    "ok": False,
-                    "ticket_id": ticket_id,
-                    "from_status": current_status,
-                    "to_status": status,
-                    "error": str(exc),
-                }
+            self._live_client.transition_issue(ticket_id, str(chosen.get("id", "")), comment=comment or None)
+            return {
+                "ok": True,
+                "ticket_id": ticket_id,
+                "from_status": current_status,
+                "to_status": status,
+            }
 
-        update = {"ticket_id": ticket_id, "status": status, "comment": comment}
-        self.updates.append(update)
-        return {"ok": True, **update}
+        return self.update_ticket(ticket_id, status=status, comment=comment)

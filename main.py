@@ -2,6 +2,10 @@ from __future__ import annotations
 
 import argparse
 
+from recorder.env_loader import load_local_env
+
+load_local_env()
+
 from agent.jira_triage_agent import run_jira_triage
 from evaluation.eval_runner import run_evaluation
 from recorder.storage.local_store import LocalTraceStore
@@ -16,6 +20,11 @@ def main() -> None:
     record_parser = subparsers.add_parser("record-demo", help="record a demo Jira run")
     record_parser.add_argument("--ticket", default="DEMO-101")
     record_parser.add_argument("--store", default=".gommage/traces")
+    record_parser.add_argument("--agent-mode")
+    record_parser.add_argument("--tool-mode")
+    record_parser.add_argument("--write-policy")
+    record_parser.add_argument("--external-messages")
+    record_parser.add_argument("--max-steps", type=int)
 
     replay_parser = subparsers.add_parser("replay", help="replay a stored run")
     replay_parser.add_argument("run_id")
@@ -37,7 +46,14 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.command == "record-demo":
-        record = run_jira_triage(args.ticket)
+        record = run_jira_triage(
+            args.ticket,
+            agent_mode=args.agent_mode,
+            tool_mode=args.tool_mode,
+            write_policy=args.write_policy,
+            external_messages=args.external_messages,
+            max_steps=args.max_steps,
+        )
         path = LocalTraceStore(args.store).save(record)
         print(f"recorded {record.run_id} to {path}")
         return
