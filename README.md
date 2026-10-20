@@ -184,79 +184,6 @@ classDiagram
 
 ---
 
-## Project Structure
-
-```
-gommage/
-│
-├── README.md                        # This file
-│
-├── recorder/                        # Core recording infrastructure
-│   ├── proxy/
-│   │   ├── llm_proxy.py             # [PLACEHOLDER] Intercepts LLM calls
-│   │   ├── tool_proxy.py            # [PLACEHOLDER] Intercepts tool calls
-│   │   └── mock_registry.py         # [PLACEHOLDER] Side-effect detection & mocking
-│   ├── serializer/
-│   │   ├── aer_schema.py            # Agent Execution Record schema (Vispute 2026)
-│   │   ├── step_snapshot.py         # [PLACEHOLDER] Per-step state serializer
-│   │   └── evidence_chain.py        # [PLACEHOLDER] Evidence chain builder
-│   └── storage/
-│       ├── local_store.py           # [PLACEHOLDER] Local file-based AER storage
-│       └── jira_attachment.py       # [PLACEHOLDER] Attaches trace to Jira ticket
-│
-├── replay/                          # Replay engine
-│   ├── engine/
-│   │   ├── replay_runner.py         # [PLACEHOLDER] Deterministic replay orchestrator
-│   │   ├── step_editor.py           # [PLACEHOLDER] Prompt / tool injection at step N
-│   │   └── divergence_tracker.py    # [PLACEHOLDER] Tracks branching from original path
-│   └── ui/
-│       ├── jira_panel/
-│       │   ├── panel_plugin.js      # [PLACEHOLDER] Jira Forge / Connect plugin
-│       │   ├── StepViewer.jsx       # [PLACEHOLDER] Step-by-step inspection component
-│       │   ├── PromptEditor.jsx     # [PLACEHOLDER] Inline prompt editing at step N
-│       │   ├── DiffViewer.jsx       # [PLACEHOLDER] Original vs. modified path diff
-│       │   └── MockBadge.jsx        # [PLACEHOLDER] Visual badge for mocked tool calls
-│       └── assets/
-│           └── styles.css           # [PLACEHOLDER] Panel styles
-│
-├── agent/                           # Demo agent (target system for hackathon demo)
-│   ├── jira_triage_agent.py         # [PLACEHOLDER] Sample Jira triage agent
-│   ├── confluence_audit_agent.py    # [PLACEHOLDER] Sample Confluence audit agent
-│   └── tools/
-│       ├── jira_tools.py            # [PLACEHOLDER] Jira API tool wrappers
-│       ├── email_tool.py            # [PLACEHOLDER] Email tool (mocked in replay)
-│       └── db_tool.py               # [PLACEHOLDER] DB query tool
-│
-├── evaluation/                      # Evaluation framework
-│   ├── test_cases/
-│   │   ├── scenario_a_side_effect.json   # [PLACEHOLDER] Side-effect trap scenario
-│   │   ├── scenario_b_divergence.json    # [PLACEHOLDER] Divergence testing scenario
-│   │   └── scenario_c_compliance.json    # [PLACEHOLDER] Audit & compliance scenario
-│   ├── metrics/
-│   │   ├── replay_fidelity.py       # [PLACEHOLDER] Measures determinism of replay
-│   │   └── mock_recall.py           # [PLACEHOLDER] Measures side-effect detection rate
-│   └── eval_runner.py               # [PLACEHOLDER] Runs full evaluation suite
-│
-├── docs/
-│   ├── architecture_diagram.png     # [PLACEHOLDER] System architecture diagram
-│   ├── technical_spec.pdf           # [PLACEHOLDER] Technical justification document
-│   ├── adr/
-│   │   └── 001-proxy-approach.md    # [PLACEHOLDER] Architecture Decision Record
-│   └── data_description.md          # [PLACEHOLDER] Data sources, formats, sensitivity
-│
-├── tests/
-│   ├── test_proxy.py                # [PLACEHOLDER] Unit tests for proxy layer
-│   ├── test_replay.py               # [PLACEHOLDER] Unit tests for replay engine
-│   └── test_aer_schema.py           # [PLACEHOLDER] Unit tests for AER schema
-│
-├── pyproject.toml                   # [PLACEHOLDER] Python project configuration
-├── requirements.txt                 # [PLACEHOLDER] Python dependencies
-├── .env.example                     # [PLACEHOLDER] Environment variables template
-└── docker-compose.yml               # [PLACEHOLDER] Local dev environment
-```
-
----
-
 ## Tech Stack
 
 | Layer                | Technology                            | Rationale                                                       |
@@ -447,6 +374,6 @@ Evaluation runs on a synthetic test suite of **[PLACEHOLDER: N] recorded agent t
 
 <div align="center">
 
-_Built for AINS Hackathon 2026 · Organised by AINS 4.0 in partnership with Vectors_
+_Built for AINS Hackathon 2026 · Organised by AINS 4.0 in partnership with [Vectors](https://covectors.io/)_
 
 </div>
