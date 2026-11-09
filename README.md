@@ -299,19 +299,6 @@ A compliance officer needs to understand what context an agent had when it appro
 
 ---
 
-## Acceptance Criteria Status
-
-| Criterion                                                            | Priority   | Status     |
-| -------------------------------------------------------------------- | ---------- | ---------- |
-| Record functionality: captures at least one LLM call + one tool call | **Must**   | Implemented in MVP |
-| Deterministic replay without triggering live tools                   | **Must**   | Implemented in MVP |
-| State inspection: exact prompt visible at any step                   | **Must**   | Implemented in schema/UI |
-| Divergence editing: modify prompt/tool result, agent takes new path  | **Should** | Implemented for replay branches |
-| Jira-native: trace auto-attached to originating ticket               | **Bonus**  | Local attachment adapter implemented |
-| Side-effect mock registry with visual badge                          | **Bonus**  | Implemented in registry/UI |
-
----
-
 ## Evaluation Methodology
 
 We define two primary metrics for the gommage system itself:
@@ -335,18 +322,6 @@ Target: MRR = 1.0 (zero false negatives — no accidental live calls during debu
 ```
 
 Evaluation runs on a synthetic test suite of **[PLACEHOLDER: N] recorded agent traces** covering the three demo scenarios, designed to be deterministically reproducible.
-
----
-
-## 5-Day Execution Plan
-
-| Day       | Focus                        | Deliverables                                                            |
-| --------- | ---------------------------- | ----------------------------------------------------------------------- |
-| **Day 1** | Infrastructure skeleton      | AER schema, LLM proxy stub, tool proxy stub, Jira ticket attachment     |
-| **Day 2** | Recording pipeline           | Full trajectory recording on demo agent, SQLite storage, step snapshots |
-| **Day 3** | Replay engine                | Deterministic replay runner, mock registry, divergence tracker          |
-| **Day 4** | Jira UI + divergence editing | Forge panel with StepViewer, PromptEditor, MockBadge; diff view         |
-| **Day 5** | Evaluation + polish          | Eval suite (RFS + MRR), end-to-end demo recording, README finalization  |
 
 ---
 
