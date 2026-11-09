@@ -4,19 +4,6 @@
 
 ---
 
-<div align="center">
-
-
-
-[![AINS Hackathon](https://img.shields.io/badge/AINS-Hackathon%202026-blueviolet?style=for-the-badge)]()
-[![Use Case](https://img.shields.io/badge/Use%20Case-2%20%E2%80%94%20Agent%20Replay-orange?style=for-the-badge)]()
-[![Status](https://img.shields.io/badge/Status-In%20Development-yellow?style=for-the-badge)]()
-[![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)]()
-
-</div>
-
----
-
 ## Table of Contents
 
 - [The Problem](#-the-problem)
